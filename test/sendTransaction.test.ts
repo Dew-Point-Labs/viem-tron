@@ -871,9 +871,9 @@ describe('6. broadcast and 7. return', () => {
     ['result false alone', { result: false }, undefined, 'no message'],
     [
       'a plain-text message',
-      { code: 'DUP_TRANSACTION_ERROR', message: 'Dup transaction.' },
-      'DUP_TRANSACTION_ERROR',
-      'Dup transaction.',
+      { code: 'TAPOS_ERROR', message: 'Tapos check error.' },
+      'TAPOS_ERROR',
+      'Tapos check error.',
     ],
     ['a numeric code', { code: 3 }, undefined, 'no message'],
   ])('a refusal with %s is BroadcastError', async (_, answer, nodeCode, text) => {
@@ -923,6 +923,23 @@ describe('6. broadcast and 7. return', () => {
       expect(error).toBeInstanceOf(BroadcastIndeterminateError)
       expect((error as BroadcastIndeterminateError).cause).toBe(answer)
       expect(callCounts(tronWeb)).toEqual(SENT)
+    },
+  )
+
+  it.each([
+    [{ code: 'DUP_TRANSACTION_ERROR', message: hex('Dup transaction.') }],
+    [{ result: false, code: 'DUP_TRANSACTION_ERROR', txid: 'aa' }],
+  ])(
+    'a node that already knows the transaction is BroadcastIndeterminateError: %o',
+    async (answer) => {
+      const tronWeb = fakeTronWeb()
+      tronWeb.trx.sendRawTransaction.mockResolvedValueOnce(answer)
+      const error = await failure(send(tronWeb, { to: CONTRACT, data: DATA }))
+      expect(error).toBeInstanceOf(BroadcastIndeterminateError)
+      expect((error as BroadcastIndeterminateError).transactionId).toBe(
+        `0x${await txIdOf(tronWeb)}`,
+      )
+      expect((error as BroadcastIndeterminateError).cause).toBe(answer)
     },
   )
 

@@ -201,7 +201,9 @@ export async function sendTransaction(
   )
   if (isRecord(answer)) {
     if (answer.result === true) return id
-    if (answer.result === false || answer.code != null)
+    // The node already knows this transaction, so an earlier broadcast may have gone through.
+    const duplicate = answer.code === 'DUP_TRANSACTION_ERROR'
+    if (!duplicate && (answer.result === false || answer.code != null))
       throw new BroadcastError(
         `The node refused the transaction: ${messageOf(answer) || 'no message'}`,
         answer,
