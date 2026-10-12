@@ -3,7 +3,6 @@ import {
   type Chain,
   InternalRpcError,
   MethodNotSupportedRpcError,
-  TimeoutError,
   UrlRequiredError,
 } from 'viem'
 import { tron } from 'viem/chains'
@@ -52,15 +51,6 @@ describe('construction', () => {
       retryCount: 0,
     })
     expect(transport.value?.tronWeb).toBe(tronWeb)
-  })
-
-  it('takes key and name from the config', () => {
-    const transport = tronWebTransport(fakeTronWeb(), {
-      rpc: stubRead(ok).transport,
-      key: 'k',
-      name: 'N',
-    })({ chain: tron })
-    expect(transport.config).toMatchObject({ key: 'k', name: 'N' })
   })
 
   it('throws BaseError when no chain is given', () => {
@@ -145,50 +135,6 @@ describe('read transport from a URL', () => {
     await tronWebTransport(fakeTronWeb())({ chain: tron }).request(request)
     expect(fetch.mock.calls[0]?.[0]).toBe(tron.rpcUrls.default.http[0])
   })
-
-  it('applies retryCount and retryDelay from the config to reads', async () => {
-    const fetch = stubFetch(500)
-    const transport = tronWebTransport(fakeTronWeb(), {
-      rpc: 'http://read.invalid',
-      retryCount: 2,
-      retryDelay: 0,
-    })({ chain: tron })
-    await failure(transport.request(request))
-    expect(fetch).toHaveBeenCalledTimes(3)
-  })
-
-  it('ignores the retryCount and timeout viem passes to the factory call', async () => {
-    const fetch = stubFetch(500)
-    const transport = tronWebTransport(fakeTronWeb(), {
-      rpc: 'http://read.invalid',
-      retryDelay: 0,
-    })({
-      chain: tron,
-      retryCount: 0,
-      timeout: 1,
-    })
-    await failure(transport.request(request))
-    // viem's own default of three retries, not the zero passed above.
-    expect(fetch).toHaveBeenCalledTimes(4)
-  })
-
-  it('applies timeout from the config to reads', async () => {
-    // A request that never answers and, like `fetch`, rejects when its signal aborts.
-    const hang = (_: unknown, init?: RequestInit) =>
-      new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => {
-          reject(new DOMException('Aborted', 'AbortError'))
-        })
-      })
-    vi.stubGlobal('fetch', vi.fn(hang))
-    const transport = tronWebTransport(fakeTronWeb(), {
-      rpc: 'http://read.invalid',
-      retryCount: 0,
-      timeout: 5,
-    })({ chain: tron })
-    const error = await failure(transport.request(request))
-    expect((error as BaseError).walk((e) => e instanceof TimeoutError)).toBeInstanceOf(TimeoutError)
-  })
 })
 
 describe('read transport given as a Transport', () => {
@@ -206,9 +152,9 @@ describe('read transport given as a Transport', () => {
     expect(factory).toHaveBeenCalledExactlyOnceWith({ chain: tron })
   })
 
-  it('keeps its own retry settings; the config ones are ignored', async () => {
+  it('keeps its own retry settings', async () => {
     const stub = stubRead(() => ({ error: { code: -32603, message: 'internal' } }), 2)
-    const transport = tronWebTransport(fakeTronWeb(), { rpc: stub.transport, retryCount: 0 })({
+    const transport = tronWebTransport(fakeTronWeb(), { rpc: stub.transport })({
       chain: tron,
     })
     expect(await failure(transport.request({ method: 'eth_blockNumber' }))).toBeInstanceOf(

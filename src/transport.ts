@@ -25,8 +25,7 @@ export function tronWebTransport(
   tronWeb: TronWebLike,
   config: TronWebTransportConfig = {},
 ): TronWebTransport {
-  const { rpc, feeLimit = 300_000_000, key = 'tronWeb', name = 'TronWeb' } = config
-  const { retryCount, retryDelay, timeout } = config
+  const { rpc, feeLimit = 300_000_000 } = config
   if (!Number.isSafeInteger(feeLimit) || feeLimit <= 0)
     throw new BaseError('`feeLimit` must be a positive safe integer, in SUN.')
 
@@ -37,9 +36,7 @@ export function tronWebTransport(
     const { rpcUrls } = chain as { rpcUrls?: { default?: { http?: readonly string[] } } }
     const endpoint = rpc ?? rpcUrls?.default?.http?.[0]
     if (!endpoint) throw new UrlRequiredError()
-    const read = (
-      typeof endpoint === 'string' ? http(endpoint, { retryCount, retryDelay, timeout }) : endpoint
-    )({ chain })
+    const read = (typeof endpoint === 'string' ? http(endpoint) : endpoint)({ chain })
 
     const request = async ({ method, params }: { method: string; params?: unknown }) => {
       switch (method) {
@@ -47,8 +44,10 @@ export function tronWebTransport(
           return numberToHex(chain.id)
         case 'net_version':
           return String(chain.id)
-        case 'eth_accounts':
-          return [walletAddress(tronWeb)].filter(Boolean)
+        case 'eth_accounts': {
+          const account = walletAddress(tronWeb)
+          return account ? [account] : []
+        }
         case 'eth_sendTransaction':
           return sendTransaction(tronWeb, feeLimit, params)
         case 'eth_signTypedData_v4':
@@ -68,7 +67,13 @@ export function tronWebTransport(
     }
 
     const transport = createTransport(
-      { key, name, type: 'tronWeb', retryCount: 0, request: request as EIP1193RequestFn },
+      {
+        key: 'tronWeb',
+        name: 'TronWeb',
+        type: 'tronWeb',
+        retryCount: 0,
+        request: request as EIP1193RequestFn,
+      },
       { tronWeb },
     )
     // A wallet action must never be re-issued, even when the caller asks for retries.

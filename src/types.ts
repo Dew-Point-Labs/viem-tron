@@ -1,17 +1,6 @@
 import type { Transport } from 'viem'
 
 /**
- * Options of a contract call. Amounts are in SUN. The keys are exact (no `| undefined`) so that
- * TronWeb's own option types stay assignable under `exactOptionalPropertyTypes`.
- */
-interface TriggerOptions {
-  feeLimit?: number
-  input?: string
-  callValue?: number
-  permissionId?: number
-}
-
-/**
  * The part of a TronWeb instance the transport calls. A `TronWeb` object created by the
  * application and the one injected by a wallet both satisfy it.
  *
@@ -34,22 +23,23 @@ export interface TronWebLike {
   }
   transactionBuilder: {
     /**
-     * Builds a contract call; `options.feeLimit` and `options.callValue` are in SUN. The
-     * transport passes the calldata as `options.input` and always an empty `parameters` list.
+     * Builds a contract call; `feeLimit` and `callValue` are in SUN. The transport passes the
+     * calldata as `options.input` and always an empty `parameters` list. The option keys are
+     * exact (no `| undefined`) so that TronWeb's own option types stay assignable.
      */
     triggerSmartContract(
       contractAddress: string,
       functionSelector: string,
-      options: TriggerOptions,
-      parameters: never[],
+      options: { feeLimit?: number; input?: string; callValue?: number; permissionId?: number },
+      parameters: [],
       issuerAddress: string,
     ): Promise<unknown>
-    /** Simulates a contract call without broadcasting it. */
+    /** Simulates a contract call without broadcasting it; `callValue` is in SUN. */
     triggerConstantContract(
       contractAddress: string,
       functionSelector: string,
-      options: TriggerOptions,
-      parameters: never[],
+      options: { input?: string; callValue?: number; permissionId?: number },
+      parameters: [],
       issuerAddress: string,
     ): Promise<unknown>
     /** Builds a TRX transfer; `amount` is in SUN. */
@@ -65,25 +55,18 @@ export interface TronWebLike {
 /** Options of {@link tronWebTransport}. */
 export interface TronWebTransportConfig {
   /**
-   * Where reads go: a Tron JSON-RPC URL, or a viem transport used as given.
-   * Defaults to the chain's first default HTTP RPC URL.
+   * Where reads go: a Tron JSON-RPC URL, or a viem transport used as given (pass one to tune
+   * retries, timeouts or headers). Defaults to the chain's first default HTTP RPC URL.
    */
   rpc?: string | Transport | undefined
   /** Upper bound a contract call may burn, in SUN. Default `300_000_000` (300 TRX). */
   feeLimit?: number | undefined
-  /** Transport key. Default `'tronWeb'`. */
-  key?: string | undefined
-  /** Transport name. Default `'TronWeb'`. */
-  name?: string | undefined
-  /** Retries of a failed read, when `rpc` is a URL. Wallet actions are never retried. */
-  retryCount?: number | undefined
-  /** Base delay between read retries in milliseconds, when `rpc` is a URL. */
-  retryDelay?: number | undefined
-  /** Timeout of a read in milliseconds, when `rpc` is a URL. Wallet actions have no timeout. */
-  timeout?: number | undefined
 }
 
-/** The transport returned by {@link tronWebTransport}; `value.tronWeb` is the wrapped instance. */
+/**
+ * The transport returned by {@link tronWebTransport}. The wrapped instance is at
+ * `value?.tronWeb` of the object viem creates from it.
+ */
 export type TronWebTransport = Transport<'tronWeb', { tronWeb: TronWebLike }>
 
 /** One or more whole bytes of hex, without `0x`. */

@@ -1,6 +1,7 @@
 // Manual, read-only probe of the built package against the public Shasta JSON-RPC endpoint.
 // Not run in CI. Usage: pnpm build && pnpm check:live
 import process from 'node:process'
+import { http } from 'viem'
 import { tronWebTransport } from '../dist/index.js'
 
 const RPC = 'https://api.shasta.trongrid.io/jsonrpc'
@@ -22,9 +23,8 @@ const tronWeb = {
   trx: {},
   transactionBuilder: {},
 }
-const { request } = tronWebTransport(tronWeb, { rpc: RPC, retryCount: 1, timeout: 15_000 })({
-  chain: { id: CHAIN_ID },
-})
+const rpc = http(RPC, { retryCount: 1, timeout: 15_000 })
+const { request } = tronWebTransport(tronWeb, { rpc })({ chain: { id: CHAIN_ID } })
 
 const call = (method, params = []) => request({ method, params })
 const isQuantity = (value) => typeof value === 'string' && /^0x[0-9a-f]+$/i.test(value)

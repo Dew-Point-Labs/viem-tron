@@ -70,15 +70,8 @@ describe('tronWebTransport', () => {
 
   it('every config key is optional and accepts an explicit undefined', () => {
     expectTypeOf<Record<string, never>>().toExtend<TronWebTransportConfig>()
-    expectTypeOf<{
-      rpc: undefined
-      feeLimit: undefined
-      key: undefined
-      name: undefined
-      retryCount: undefined
-      retryDelay: undefined
-      timeout: undefined
-    }>().toExtend<TronWebTransportConfig>()
+    expectTypeOf<{ rpc: undefined; feeLimit: undefined }>().toExtend<TronWebTransportConfig>()
+    expectTypeOf<keyof TronWebTransportConfig>().toEqualTypeOf<'rpc' | 'feeLimit'>()
     expectTypeOf<TronWebTransportConfig['rpc']>().toEqualTypeOf<string | Transport | undefined>()
     expectTypeOf<TronWebTransportConfig['feeLimit']>().toEqualTypeOf<number | undefined>()
   })
