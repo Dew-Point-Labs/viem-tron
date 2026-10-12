@@ -164,6 +164,23 @@ describe('3. domain and 4. digest', () => {
     expect(signedInput(tronWeb)).toBe(declared.slice(2))
   })
 
+  it('hashes a declared domain exactly as given, without touching chainId', async () => {
+    const tronWeb = fakeTronWeb()
+    const data = {
+      types: { EIP712Domain: [{ name: 'chainId', type: 'string' }], ...types },
+      domain: { chainId: '0x1' },
+      primaryType: 'SafeTx',
+      message: { ...message, value: 1_000_000n, nonce: 7n },
+    } as const
+    await signTypedData(tronWeb, [WALLET, data])
+    expect(signedInput(tronWeb)).toBe(hashTypedData(data).slice(2))
+  })
+
+  it('leaves a chainId that a declared domain makes invalid to viem', async () => {
+    const data = { ...typedData({}, true) }
+    await expectInvalidParams([WALLET, data])
+  })
+
   it('injects nothing into the domain', async () => {
     const tronWeb = fakeTronWeb()
     const data = { ...typedData(), domain: { verifyingContract: CONTRACT } }

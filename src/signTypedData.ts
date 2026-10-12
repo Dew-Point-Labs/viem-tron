@@ -34,8 +34,9 @@ export async function signTypedData(tronWeb: TronWebLike, params: unknown): Prom
     )
 
   const domain = { ...typedData.domain }
-  if (domain.chainId !== undefined) {
-    // Older viem leaves a non-number chainId out of the derived domain type.
+  // Only when viem derives the domain type: older versions leave a non-number chainId out of
+  // it. A declared `EIP712Domain` is hashed exactly as given.
+  if (typedData.types.EIP712Domain === undefined && domain.chainId !== undefined) {
     domain.chainId = toSafeInteger(domain.chainId, true)
     if (domain.chainId === undefined)
       throw invalidParams('`domain.chainId` must be a non-negative safe integer.')
