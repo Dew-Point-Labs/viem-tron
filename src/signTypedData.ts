@@ -56,6 +56,6 @@ export async function signTypedData(tronWeb: TronWebLike, params: unknown): Prom
       : []
   const v = parseInt(vHex ?? '', 16)
   if (rs === undefined || ![0, 1, 27, 28].includes(v))
-    throw new SigningError('The signer did not return a 65-byte signature.', signature)
+    throw new SigningError('The signer did not return a 65-byte signature.', { cause: signature })
   return `0x${rs.toLowerCase()}${(v < 27 ? v + 27 : v).toString(16)}`
 }

@@ -51,12 +51,12 @@ describe('messageOf (node message decoder)', () => {
 describe('error classes', () => {
   const cause = new Error('original')
   const cases = [
-    ['TransactionRevertedError', new TransactionRevertedError('m', cause)],
-    ['SimulationUnavailableError', new SimulationUnavailableError('m', cause)],
-    ['TransactionBuildError', new TransactionBuildError('m', cause)],
-    ['SigningError', new SigningError('m', cause)],
-    ['BroadcastError', new BroadcastError('m', cause)],
-    ['BroadcastIndeterminateError', new BroadcastIndeterminateError('0xab', cause)],
+    ['TransactionRevertedError', new TransactionRevertedError('m', { cause })],
+    ['SimulationUnavailableError', new SimulationUnavailableError('m', { cause })],
+    ['TransactionBuildError', new TransactionBuildError('m', { cause })],
+    ['SigningError', new SigningError('m', { cause })],
+    ['BroadcastError', new BroadcastError('m', { cause })],
+    ['BroadcastIndeterminateError', new BroadcastIndeterminateError('0xab', { cause })],
   ] as const
 
   it.each(cases)(
@@ -73,27 +73,31 @@ describe('error classes', () => {
 
   it('keeps a thrown string or object as the cause, verbatim', () => {
     const thrown = { message: 'object' }
-    expect(new SigningError('m', 'text').cause).toBe('text')
-    expect(new SigningError('m', thrown).cause).toBe(thrown)
+    expect(new SigningError('m', { cause: 'text' }).cause).toBe('text')
+    expect(new SigningError('m', { cause: thrown }).cause).toBe(thrown)
     expect(new SigningError('m').cause).toBeUndefined()
   })
 
   it('TransactionRevertedError carries reason and data', () => {
-    const error = new TransactionRevertedError('m', cause, 'OUT_OF_ENERGY', '0x08c379a0')
+    const error = new TransactionRevertedError('m', {
+      cause,
+      reason: 'OUT_OF_ENERGY',
+      data: '0x08c379a0',
+    })
     expect(error.reason).toBe('OUT_OF_ENERGY')
     expect(error.data).toBe('0x08c379a0')
-    expect(new TransactionRevertedError('m', cause).reason).toBeUndefined()
-    expect(new TransactionRevertedError('m', cause).data).toBeUndefined()
+    expect(new TransactionRevertedError('m', { cause }).reason).toBeUndefined()
+    expect(new TransactionRevertedError('m', { cause }).data).toBeUndefined()
   })
 
   it('BroadcastError carries the node code', () => {
-    expect(new BroadcastError('m', cause, 'SIGERROR').nodeCode).toBe('SIGERROR')
-    expect(new BroadcastError('m', cause).nodeCode).toBeUndefined()
+    expect(new BroadcastError('m', { cause, nodeCode: 'SIGERROR' }).nodeCode).toBe('SIGERROR')
+    expect(new BroadcastError('m', { cause }).nodeCode).toBeUndefined()
   })
 
   it('BroadcastIndeterminateError exposes the id three ways', () => {
     const id = `0x${'ab'.repeat(32)}` as const
-    const error = new BroadcastIndeterminateError(id, cause)
+    const error = new BroadcastIndeterminateError(id, { cause })
     expect(error.transactionId).toBe(id)
     expect(error.data).toEqual({ transactionId: id })
     expect(error.message).toContain(id)
@@ -188,7 +192,7 @@ describe('guard', () => {
     ['an object', { message: 'obj' }],
     ['an Error', new Error('err')],
   ])('converts %s thrown synchronously or asynchronously', async (_, thrown) => {
-    const wrap = (cause: unknown) => new SigningError('wrapped', cause)
+    const wrap = (cause: unknown) => new SigningError('wrapped', { cause })
     const sync = guard(() => {
       // eslint-disable-next-line @typescript-eslint/only-throw-error -- wallets throw non-errors
       throw thrown

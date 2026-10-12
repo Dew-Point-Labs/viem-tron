@@ -28,12 +28,13 @@ export class TronWebTransportError extends BaseError {
   // The one code viem neither retries nor passes to the next transport of a `fallback()`.
   readonly code = -32003
 
-  constructor(shortMessage: string, cause?: unknown) {
+  /** `options.cause` is the value that was thrown or the answer that was refused, unchanged. */
+  constructor(shortMessage: string, options: { cause?: unknown } = {}) {
     super(shortMessage)
     // viem's wrapper shows only the `details` of its cause: keep the whole message visible there.
     this.details = shortMessage
     // Wallets throw strings and plain objects; viem's own `cause` option only takes an Error.
-    this.cause = cause
+    this.cause = options.cause
   }
 }
 
@@ -45,10 +46,13 @@ export class TransactionRevertedError extends TronWebTransportError {
   /** Revert bytes, when the node returned them. */
   data?: Hex | undefined
 
-  constructor(shortMessage: string, cause?: unknown, reason?: 'OUT_OF_ENERGY', data?: Hex) {
-    super(shortMessage, cause)
-    this.reason = reason
-    this.data = data
+  constructor(
+    shortMessage: string,
+    options: { cause?: unknown; reason?: 'OUT_OF_ENERGY' | undefined; data?: Hex | undefined } = {},
+  ) {
+    super(shortMessage, options)
+    this.reason = options.reason
+    this.data = options.data
   }
 }
 
@@ -73,9 +77,12 @@ export class BroadcastError extends TronWebTransportError {
   /** The node's error code, for example `SIGERROR`. */
   nodeCode?: string | undefined
 
-  constructor(shortMessage: string, cause?: unknown, nodeCode?: string) {
-    super(shortMessage, cause)
-    this.nodeCode = nodeCode
+  constructor(
+    shortMessage: string,
+    options: { cause?: unknown; nodeCode?: string | undefined } = {},
+  ) {
+    super(shortMessage, options)
+    this.nodeCode = options.nodeCode
   }
 }
 
@@ -90,10 +97,10 @@ export class BroadcastIndeterminateError extends TronWebTransportError {
   /** The same id, in the only extra field a wrapping EIP-1193 provider forwards. */
   data: { transactionId: Hex }
 
-  constructor(transactionId: Hex, cause?: unknown) {
+  constructor(transactionId: Hex, options: { cause?: unknown } = {}) {
     super(
       `The broadcast outcome of transaction ${transactionId} is unknown. It may have been accepted: look the id up before sending again.`,
-      cause,
+      options,
     )
     this.transactionId = transactionId
     this.data = { transactionId }
@@ -112,7 +119,8 @@ export function signingFailure(thrown: unknown): UserRejectedRequestError | Sign
   const text = messageOf(thrown)
   const code: unknown = isRecord(thrown) ? thrown.code : undefined
   const rejected = code === 4001 || code === '4001' || USER_REJECTION.test(text)
-  if (!rejected) return new SigningError(`Signing failed: ${text || 'unknown error'}`, thrown)
+  if (!rejected)
+    return new SigningError(`Signing failed: ${text || 'unknown error'}`, { cause: thrown })
   return new UserRejectedRequestError(
     thrown instanceof Error ? thrown : new Error(text, { cause: thrown }),
   )

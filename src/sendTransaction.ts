@@ -21,7 +21,7 @@ const nodeText = (source: unknown) =>
 const buildError = (source: unknown) =>
   new TransactionBuildError(
     `The transaction could not be built: ${nodeText(source) || 'unexpected answer from the node'}`,
-    source,
+    { cause: source },
   )
 
 function simulationFailed(simulated: Record<string, unknown>): boolean {
@@ -44,13 +44,11 @@ function simulationError(source: unknown): Error {
       outOfEnergy
         ? 'The transaction would run out of energy.'
         : `The transaction would revert: ${text || 'no reason given'}`,
-      source,
-      outOfEnergy ? 'OUT_OF_ENERGY' : undefined,
-      data,
+      { cause: source, reason: outOfEnergy ? 'OUT_OF_ENERGY' : undefined, data },
     )
   return new SimulationUnavailableError(
     `The transaction could not be simulated: ${text || 'unexpected answer from the node'}`,
-    source,
+    { cause: source },
   )
 }
 
@@ -165,7 +163,9 @@ export async function sendTransaction(
   if (typeof txID !== 'string' || !/^[0-9a-f]{64}$/i.test(txID)) throw buildError(built)
 
   if (!matchesRequest(tronWeb, transaction, { from, to, calldata, value }))
-    throw new TransactionBuildError('The built transaction does not match the request.', built)
+    throw new TransactionBuildError('The built transaction does not match the request.', {
+      cause: built,
+    })
 
   if (isCall) {
     const simulated = await guard(
@@ -192,12 +192,12 @@ export async function sendTransaction(
     !signed.signature.every(isSignature) ||
     signed.txID !== txID
   )
-    throw new SigningError('The signer returned an unusable result.', signed)
+    throw new SigningError('The signer returned an unusable result.', { cause: signed })
 
   const id: Hex = `0x${txID.toLowerCase()}`
   const answer = await guard(
     () => tronWeb.trx.sendRawTransaction({ ...transaction, signature: signed.signature }),
-    (thrown) => new BroadcastIndeterminateError(id, thrown),
+    (cause) => new BroadcastIndeterminateError(id, { cause }),
   )
   if (isRecord(answer)) {
     if (answer.result === true) return id
@@ -206,9 +206,8 @@ export async function sendTransaction(
     if (!duplicate && (answer.result === false || answer.code != null))
       throw new BroadcastError(
         `The node refused the transaction: ${messageOf(answer) || 'no message'}`,
-        answer,
-        typeof answer.code === 'string' ? answer.code : undefined,
+        { cause: answer, nodeCode: typeof answer.code === 'string' ? answer.code : undefined },
       )
   }
-  throw new BroadcastIndeterminateError(id, answer)
+  throw new BroadcastIndeterminateError(id, { cause: answer })
 }
