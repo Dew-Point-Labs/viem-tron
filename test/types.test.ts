@@ -15,7 +15,7 @@ describe('toSafeInteger', () => {
     expect(toSafeInteger(7)).toBe(7)
     expect(toSafeInteger(7n)).toBe(7)
     expect(toSafeInteger('0x10')).toBe(16)
-    expect(toSafeInteger('0X0a')).toBe(10)
+    expect(toSafeInteger('0x0A')).toBe(10)
     expect(toSafeInteger(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER)
     expect(toSafeInteger(BigInt(Number.MAX_SAFE_INTEGER))).toBe(Number.MAX_SAFE_INTEGER)
     expect(toSafeInteger('0x1fffffffffffff')).toBe(Number.MAX_SAFE_INTEGER)

@@ -86,7 +86,7 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** A number, bigint or `0x` quantity (optionally a decimal string) as a non-negative safe integer. */
 export function toSafeInteger(value: unknown, allowDecimal = false): number | undefined {
-  const quantity = allowDecimal ? /^(0x[0-9a-f]+|\d+)$/i : /^0x[0-9a-f]+$/i
+  const quantity = allowDecimal ? /^(0x[0-9a-fA-F]+|\d+)$/ : /^0x[0-9a-fA-F]+$/
   const parsed = typeof value === 'string' && quantity.test(value) ? BigInt(value) : value
   const number = typeof parsed === 'bigint' ? Number(parsed) : parsed
   return typeof number === 'number' && Number.isSafeInteger(number) && number >= 0

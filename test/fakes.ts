@@ -202,3 +202,34 @@ export function stubRead(respond: (method: string, params: unknown) => RpcBody, 
     })
   return { transport, request }
 }
+
+/** The three kinds of value a wallet throws, carrying the same text. */
+export const thrownForms = (text: string) =>
+  [
+    ['a string', text],
+    ['an object', { message: text }],
+    ['an Error', new Error(text)],
+  ] as const
+
+/** A rejection with any value, as wallets produce them. */
+export const rejection = (value: unknown) => () =>
+  // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- wallets reject with non-errors
+  Promise.reject(value)
+
+/** The error a promise rejects with; fails when it resolves. */
+export const failure = (promise: Promise<unknown>): Promise<unknown> =>
+  promise.then(
+    (value) => {
+      throw new Error(`expected a rejection, got ${JSON.stringify(value)}`)
+    },
+    (error: unknown) => error,
+  )
+
+/** How many times each TronWeb entry point was called: build, simulate, transfer, sign, broadcast. */
+export const callCounts = (tronWeb: FakeTronWeb) => ({
+  build: tronWeb.transactionBuilder.triggerSmartContract.mock.calls.length,
+  simulate: tronWeb.transactionBuilder.triggerConstantContract.mock.calls.length,
+  transfer: tronWeb.transactionBuilder.sendTrx.mock.calls.length,
+  sign: tronWeb.trx.sign.mock.calls.length,
+  broadcast: tronWeb.trx.sendRawTransaction.mock.calls.length,
+})
