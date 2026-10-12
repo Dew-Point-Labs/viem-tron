@@ -131,9 +131,9 @@ Not supported: every other method is refused with viem's `MethodNotSupportedRpcE
 
 1. Validate the parameters (`InvalidParamsRpcError` on any problem).
 2. Build the transaction: `triggerSmartContract` for a contract call, `sendTrx` for a TRX transfer.
-3. Check the built transaction against the request: one contract entry of the expected type with the requested sender, recipient, calldata and amount. Anything else is a `TransactionBuildError`.
+3. Check the built transaction against the request: one contract entry of the expected type with the requested sender, recipient, calldata, amount and permission id, no token amount attached, and for a contract call a fee limit no higher than `feeLimit`. Anything else is a `TransactionBuildError`.
 4. Simulate it with `triggerConstantContract` (contract calls only).
-5. Sign it with the wallet (`trx.sign`). The wallet gets its own object; a returned transaction id that differs from the built one, or a signature that is not 65 bytes, is a `SigningError`.
+5. Sign it with the wallet (`trx.sign`). The wallet gets its own object; a returned transaction id that differs from the built one, or a signature that is not 65 bytes, is a `SigningError`. The signatures are read once and copied.
 6. Broadcast the built transaction with the wallet's signatures (`trx.sendRawTransaction`) and return the transaction id (`0x` + id). The transport does not wait for confirmation.
 
 Accepted fields: `from`, `to`, `data` (or `input`), `value`, `permissionId`. Gas, fee, nonce, chain id, type and access-list fields are ignored.
@@ -214,6 +214,7 @@ All are exported from the package root.
   }
   ```
 
+- `walletClient.sendTransaction(...)` may also relabel the outermost error by matching text in the node's message (viem's own behaviour). Rely on `error.walk((e) => e instanceof TronWebTransportError)`, not on the top-level class or message.
 - An EIP-1193 wrapper such as ethers `BrowserProvider`: only `code`, `data` and `message` survive. Every error of this package has `code` -32003, and its text is part of the outer error's `message`. `data.transactionId` is on `BroadcastIndeterminateError` itself, not on viem's wrapper, so read it from the walked error before the error leaves viem.
 - Two copies of viem in one bundle do not change this: viem maps these errors by `code`.
 
@@ -228,7 +229,7 @@ Invalid parameters and unsupported methods are refused before TronWeb is asked f
 
 ## Broadcast outcome unknown
 
-`BroadcastIndeterminateError` means the signed transaction was handed to TronWeb but the answer was lost or unrecognisable (a timeout, a dropped connection, an unexpected reply), or the node answered that it already has this transaction (`DUP_TRANSACTION_ERROR`). **The transaction may have been accepted.** Do not send it again blindly. The error has `transactionId` (and the same id in `data.transactionId`); look it up first:
+`BroadcastIndeterminateError` means the signed transaction was handed to TronWeb but the answer was lost or unrecognisable (a timeout, a dropped connection, an unexpected reply), or the node answered that it already has this transaction (`DUP_TRANSACTION_ERROR`) or failed with its catch-all code (`OTHER_ERROR`), which it can raise after the transaction entered its pending pool. **The transaction may have been accepted.** Do not send it again blindly. The error has `transactionId` (and the same id in `data.transactionId`); look it up first:
 
 ```ts
 import { type BaseError, createPublicClient } from 'viem'
