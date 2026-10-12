@@ -1,11 +1,14 @@
 import type { Transport } from 'viem'
 
-/** Options of a contract call. Amounts are in SUN. */
+/**
+ * Options of a contract call. Amounts are in SUN. The keys are exact (no `| undefined`) so that
+ * TronWeb's own option types stay assignable under `exactOptionalPropertyTypes`.
+ */
 interface TriggerOptions {
-  feeLimit?: number | undefined
-  input?: string | undefined
-  callValue?: number | undefined
-  permissionId?: number | undefined
+  feeLimit?: number
+  input?: string
+  callValue?: number
+  permissionId?: number
 }
 
 /**
@@ -30,12 +33,15 @@ export interface TronWebLike {
     sendRawTransaction(signedTransaction: object): Promise<unknown>
   }
   transactionBuilder: {
-    /** Builds a contract call; `options.feeLimit` and `options.callValue` are in SUN. */
+    /**
+     * Builds a contract call; `options.feeLimit` and `options.callValue` are in SUN. The
+     * transport passes the calldata as `options.input` and always an empty `parameters` list.
+     */
     triggerSmartContract(
       contractAddress: string,
       functionSelector: string,
       options: TriggerOptions,
-      parameters: unknown[],
+      parameters: never[],
       issuerAddress: string,
     ): Promise<unknown>
     /** Simulates a contract call without broadcasting it. */
@@ -43,7 +49,7 @@ export interface TronWebLike {
       contractAddress: string,
       functionSelector: string,
       options: TriggerOptions,
-      parameters: unknown[],
+      parameters: never[],
       issuerAddress: string,
     ): Promise<unknown>
     /** Builds a TRX transfer; `amount` is in SUN. */
@@ -51,7 +57,7 @@ export interface TronWebLike {
       to: string,
       amount: number,
       from: string,
-      options: { permissionId?: number | undefined },
+      options: { permissionId?: number },
     ): Promise<unknown>
   }
 }
