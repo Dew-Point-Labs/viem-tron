@@ -1,4 +1,10 @@
-// Placeholder so the build is real; the implementation lands in the next commit.
-export function tronWebTransport(): never {
-  throw new Error('not implemented')
-}
+export {
+  BroadcastError,
+  BroadcastIndeterminateError,
+  SigningError,
+  SimulationUnavailableError,
+  TransactionBuildError,
+  TransactionRevertedError,
+} from './errors.js'
+export { tronWebTransport } from './transport.js'
+export type { TronWebLike, TronWebTransport, TronWebTransportConfig } from './types.js'
