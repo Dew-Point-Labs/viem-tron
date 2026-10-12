@@ -38,18 +38,14 @@ function simulationError(source: unknown): Error {
     : undefined
   const data: Hex | undefined =
     typeof bytes === 'string' && /^(?:[0-9a-f]{2})+$/i.test(bytes) ? `0x${bytes}` : undefined
-  if (/out.?of.?energy/i.test(text))
+  const outOfEnergy = /out.?of.?energy/i.test(text)
+  if (outOfEnergy || /revert/i.test(text) || simulationFailed(simulated))
     return new TransactionRevertedError(
-      'The transaction would run out of energy.',
+      outOfEnergy
+        ? 'The transaction would run out of energy.'
+        : `The transaction would revert: ${text || 'no reason given'}`,
       source,
-      'OUT_OF_ENERGY',
-      data,
-    )
-  if (/revert/i.test(text) || simulationFailed(simulated))
-    return new TransactionRevertedError(
-      `The transaction would revert: ${text || 'no reason given'}`,
-      source,
-      undefined,
+      outOfEnergy ? 'OUT_OF_ENERGY' : undefined,
       data,
     )
   return new SimulationUnavailableError(
