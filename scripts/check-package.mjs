@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -20,14 +20,16 @@ try {
     .filter((f) => f && !f.endsWith('/'))
     .map((f) => f.replace(/^package\//, ''))
   const allowed = (f) =>
-    ['package.json', 'README.md', 'CHANGELOG.md'].includes(f) || f.startsWith('dist/')
+    ['package.json', 'README.md', 'CHANGELOG.md', 'LICENSE'].includes(f) || f.startsWith('dist/')
   const extra = files.filter((f) => !allowed(f))
   if (extra.length > 0) throw new Error(`unexpected files in tarball: ${extra.join(', ')}`)
 
   const app = join(tmp, 'app')
   mkdirSync(app)
   writeFileSync(join(app, 'package.json'), '{"name":"consumer","private":true}')
-  run('npm', ['install', '--no-audit', '--no-fund', tarball, 'viem@2.21.55'], app)
+  // The viem the test suite ran against: the floor of the peer range.
+  const { devDependencies } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  run('npm', ['install', '--no-audit', '--no-fund', tarball, `viem@${devDependencies.viem}`], app)
 
   // Construct a real transport from the installed package, with a TronWeb that is never called.
   const check = `

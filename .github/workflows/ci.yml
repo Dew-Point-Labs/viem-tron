@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -9,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # The test runner needs Node >= 22.12; `engines.node >=20` is the contract of the built library.
         node: [22, 24]
     steps:
       - uses: actions/checkout@v4
