@@ -31,16 +31,20 @@ const checksum = (hex: string) => sha256(sha256(`0x${hex}`)).slice(2, 10)
 /** Same results and the same throws as TronWeb's `address.toHex`. */
 export function toHex(address: string): string {
   if (/^(0x)?[0-9a-f]*$/i.test(address)) return address.toLowerCase().replace(/^0x/, '41')
+  if (address.length <= 4) return ''
   let value = 0n
   for (const character of address) {
     const index = ALPHABET.indexOf(character)
     if (index < 0) throw new Error('Non-base58 character')
     value = value * 58n + BigInt(index)
   }
-  const hex = value.toString(16).padStart(50, '0')
-  if (hex.length !== 50 || checksum(hex.slice(0, 42)) !== hex.slice(42))
-    throw new Error('Invalid address provided')
-  return hex.slice(0, 42)
+  const digits = value.toString(16)
+  const leadingZeroBytes = /^1*/.exec(address.slice(0, -1))?.[0].length ?? 0
+  const bytes =
+    '00'.repeat(leadingZeroBytes) + digits.padStart(digits.length + (digits.length % 2), '0')
+  if (bytes.length <= 8) return ''
+  if (checksum(bytes.slice(0, -8)) !== bytes.slice(-8)) throw new Error('Invalid address provided')
+  return bytes.slice(0, -8)
 }
 
 /** Same results as TronWeb's `address.fromHex`. */

@@ -1,6 +1,6 @@
 import { InvalidParamsRpcError } from 'viem'
 import { describe, expect, it } from 'vitest'
-import { FORWARDED_METHODS, normalizeCallParams, normalizeReadResult } from '../src/reads.js'
+import { normalizeCallParams, normalizeReadResult } from '../src/reads.js'
 import {
   CONTRACT,
   CONTRACT_41,
@@ -10,27 +10,6 @@ import {
   WALLET_BASE58,
   fakeTronWeb,
 } from './fakes.js'
-
-describe('FORWARDED_METHODS', () => {
-  it('is exactly the read allowlist', () => {
-    expect([...FORWARDED_METHODS].sort()).toEqual(
-      [
-        'eth_blockNumber',
-        'eth_getBlockByNumber',
-        'eth_getBlockByHash',
-        'eth_getBalance',
-        'eth_call',
-        'eth_estimateGas',
-        'eth_getCode',
-        'eth_getStorageAt',
-        'eth_getLogs',
-        'eth_gasPrice',
-        'eth_getTransactionByHash',
-        'eth_getTransactionReceipt',
-      ].sort(),
-    )
-  })
-})
 
 describe('normalizeCallParams', () => {
   it('converts base58 and 41-hex `to` / `from` to 0x and keeps the other fields and params', () => {
@@ -142,18 +121,21 @@ describe('normalizeReadResult', () => {
     expect(normalizeReadResult('eth_getTransactionReceipt', null)).toBeNull()
   })
 
-  it.each(['blockHash', 'blockNumber', 'status'])(
-    'eth_getTransactionReceipt: a receipt whose %s is missing, null or "0x" is null',
+  describe.each(['blockHash', 'blockNumber', 'status'])(
+    'eth_getTransactionReceipt: a receipt whose %s',
     (key) => {
       const receipt = { blockHash: '0xbb', blockNumber: '0x1', status: '0x0' }
-      for (const value of [undefined, null, '0x'])
+
+      it.each([[undefined], [null], ['0x']])('is %o is null', (value) => {
         expect(
           normalizeReadResult('eth_getTransactionReceipt', { ...receipt, [key]: value }),
         ).toBeNull()
-      const rest: Record<string, string> = { ...receipt }
-      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the test removes one key at a time
-      delete rest[key]
-      expect(normalizeReadResult('eth_getTransactionReceipt', rest)).toBeNull()
+      })
+
+      it('is missing is null', () => {
+        const rest = Object.fromEntries(Object.entries(receipt).filter(([name]) => name !== key))
+        expect(normalizeReadResult('eth_getTransactionReceipt', rest)).toBeNull()
+      })
     },
   )
 

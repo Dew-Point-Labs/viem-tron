@@ -1,4 +1,5 @@
 import { InvalidParamsRpcError } from 'viem'
+import { TronWeb } from 'tronweb'
 import { describe, expect, it } from 'vitest'
 import { to0x, toBase58, walletAddress } from '../src/address.js'
 import {
@@ -10,28 +11,43 @@ import {
   WALLET_BASE58,
   fakeTronWeb,
   fromHex,
+  thrownForms,
   toHex,
 } from './fakes.js'
 
-const thrown = [
-  ['a string', 'Invalid address provided'],
-  ['an object', { message: 'Invalid address provided' }],
-  ['an Error', new Error('Invalid address provided')],
-] as const
+const thrown = thrownForms('Invalid address provided')
+
+/** The value a call returns, or the message of what it throws. */
+const outcome = (call: () => string) => {
+  try {
+    return call()
+  } catch (error) {
+    return `throws ${(error as Error).message}`
+  }
+}
 
 describe('fake address conversion', () => {
-  it('matches values produced by TronWeb 6', () => {
-    expect(toHex(CONTRACT_BASE58)).toBe(CONTRACT_41)
-    expect(toHex(CONTRACT)).toBe(CONTRACT_41)
-    expect(toHex('0x1234')).toBe('411234')
-    expect(toHex('')).toBe('')
-    expect(fromHex(CONTRACT_41)).toBe(CONTRACT_BASE58)
-    expect(fromHex(CONTRACT)).toBe(CONTRACT_BASE58)
-    expect(fromHex(WALLET_41)).toBe(WALLET_BASE58)
-    expect(fromHex('zz')).toBe('zz')
-    expect(() => toHex('TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6u')).toThrow('Invalid address provided')
-    expect(() => toHex('TR7NHqjeKQ')).toThrow('Invalid address provided')
-    expect(() => toHex('hello world')).toThrow('Non-base58 character')
+  const inputs = [
+    CONTRACT,
+    CONTRACT.toUpperCase().replace('0X', '0x'),
+    CONTRACT_41,
+    CONTRACT_BASE58,
+    WALLET_41,
+    WALLET_BASE58,
+    '0x1234',
+    '',
+    'zz',
+    'hello world',
+    'TR7NHqjeKQ',
+    'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6u',
+  ]
+
+  it.each(inputs)('toHex(%j) behaves as the installed TronWeb', (input) => {
+    expect(outcome(() => toHex(input))).toBe(outcome(() => TronWeb.address.toHex(input)))
+  })
+
+  it.each(inputs)('fromHex(%j) behaves as the installed TronWeb', (input) => {
+    expect(outcome(() => fromHex(input))).toBe(outcome(() => TronWeb.address.fromHex(input)))
   })
 })
 

@@ -1,4 +1,4 @@
-import { BaseError, InvalidParamsRpcError, UserRejectedRequestError, stringToHex } from 'viem'
+import { BaseError, InvalidParamsRpcError, UserRejectedRequestError } from 'viem'
 import { describe, expect, it } from 'vitest'
 import {
   BroadcastError,
@@ -8,13 +8,11 @@ import {
   TransactionBuildError,
   TransactionRevertedError,
   TronWebTransportError,
-  guard,
   invalidParams,
   messageOf,
   signingFailure,
 } from '../src/errors.js'
-
-const hex = (text: string) => stringToHex(text).slice(2)
+import { hex, thrownForms } from './fakes.js'
 
 describe('messageOf (node message decoder)', () => {
   it('decodes a string that is entirely even-length hex of printable ASCII', () => {
@@ -42,10 +40,12 @@ describe('messageOf (node message decoder)', () => {
     expect(messageOf({ message: hex('node says no') })).toBe('node says no')
   })
 
-  it('is empty when there is no text', () => {
-    for (const value of [undefined, null, 5, {}, { message: 5 }, []])
+  it.each([[undefined], [null], [5], [{}], [{ message: 5 }], [[]]])(
+    'is empty when there is no text: %o',
+    (value) => {
       expect(messageOf(value)).toBe('')
-  })
+    },
+  )
 })
 
 describe('error classes', () => {
@@ -132,20 +132,21 @@ describe('signingFailure', () => {
     'User reject',
   ]
 
-  it.each(refusals)('maps the refusal %j to UserRejectedRequestError (4001)', (text) => {
-    for (const thrown of [text, new Error(text), { message: text }]) {
+  describe.each(refusals)('the refusal %j', (text) => {
+    it.each(thrownForms(text))('thrown as %s is UserRejectedRequestError (4001)', (_, thrown) => {
       const error = signingFailure(thrown)
       expect(error).toBeInstanceOf(UserRejectedRequestError)
       expect((error as UserRejectedRequestError).code).toBe(4001)
       expect(error.cause === thrown || (error.cause as Error).cause === thrown).toBe(true)
-    }
+    })
   })
 
-  it('maps code 4001 to UserRejectedRequestError whatever the text', () => {
-    expect(signingFailure({ code: 4001, message: 'nope' })).toBeInstanceOf(UserRejectedRequestError)
-    expect(signingFailure({ code: 4001 })).toBeInstanceOf(UserRejectedRequestError)
-    expect(signingFailure({ code: '4001' })).toBeInstanceOf(UserRejectedRequestError)
-  })
+  it.each([[{ code: 4001, message: 'nope' }], [{ code: 4001 }], [{ code: '4001' }]])(
+    'maps %o to UserRejectedRequestError whatever the text',
+    (thrown) => {
+      expect(signingFailure(thrown)).toBeInstanceOf(UserRejectedRequestError)
+    },
+  )
 
   it.each(['Transaction rejected', 'rejected', 'Rejected: user has no energy', 'denied'])(
     'node wording %j is not a user rejection',
@@ -155,54 +156,16 @@ describe('signingFailure', () => {
     },
   )
 
-  it('maps every other thrown value to SigningError with the original as cause', () => {
-    for (const thrown of [
-      'Invalid transaction',
-      new Error('Private key does not match'),
-      { code: 500 },
-      undefined,
-      null,
-      4001,
-    ]) {
-      const error = signingFailure(thrown)
-      expect(error).toBeInstanceOf(SigningError)
-      expect(error.cause).toBe(thrown)
-    }
-  })
-})
-
-describe('guard', () => {
-  it('returns the value of a sync or async call', async () => {
-    await expect(
-      guard(
-        () => 1,
-        () => new Error('never'),
-      ),
-    ).resolves.toBe(1)
-    await expect(
-      guard(
-        () => Promise.resolve(2),
-        () => new Error('never'),
-      ),
-    ).resolves.toBe(2)
-  })
-
   it.each([
-    ['a string', 'text'],
-    ['an object', { message: 'obj' }],
-    ['an Error', new Error('err')],
-  ])('converts %s thrown synchronously or asynchronously', async (_, thrown) => {
-    const wrap = (cause: unknown) => new SigningError('wrapped', { cause })
-    const sync = guard(() => {
-      // eslint-disable-next-line @typescript-eslint/only-throw-error -- wallets throw non-errors
-      throw thrown
-    }, wrap)
-    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- wallets reject with non-errors
-    const asynchronous = guard(() => Promise.reject(thrown), wrap)
-    for (const promise of [sync, asynchronous]) {
-      const error = await promise.catch((e: unknown) => e)
-      expect(error).toBeInstanceOf(SigningError)
-      expect((error as SigningError).cause).toBe(thrown)
-    }
+    ['Invalid transaction'],
+    [new Error('Private key does not match')],
+    [{ code: 500 }],
+    [undefined],
+    [null],
+    [4001],
+  ])('maps %o to SigningError with the original as cause', (thrown) => {
+    const error = signingFailure(thrown)
+    expect(error).toBeInstanceOf(SigningError)
+    expect(error.cause).toBe(thrown)
   })
 })

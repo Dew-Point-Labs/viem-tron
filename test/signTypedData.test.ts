@@ -7,6 +7,7 @@ import {
   recoverAddress,
   stringToHex,
 } from 'viem'
+import { TronWeb, Trx } from 'tronweb'
 import { describe, expect, it } from 'vitest'
 import { SigningError } from '../src/errors.js'
 import { signTypedData } from '../src/signTypedData.js'
@@ -14,6 +15,7 @@ import {
   CONTRACT,
   type FakeTronWeb,
   OTHER,
+  PRIVATE_KEY,
   TRON_MESSAGE_HEADER,
   WALLET,
   WALLET_41,
@@ -62,10 +64,19 @@ async function expectInvalidParams(params: unknown, tronWeb = fakeTronWeb()) {
 }
 
 describe('fake signer', () => {
-  it('matches the signature TronWeb 6 produces for the same key and message', async () => {
-    expect(await fakeTronWeb().trx.sign('aa'.repeat(32))).toBe(
-      '0xefa22e99f3ca1cae08c763e83ecbaed688379c8d4163b00339d4b9ee36d31d7f584323d72e4e0f23fbba4201edc515c6cfef49a1d7aa25fb915cd675991922171b',
-    )
+  it.each([['aa'.repeat(32)], [`0x${'0f'.repeat(32)}`]])(
+    'signs %s exactly as the installed TronWeb does',
+    async (message) => {
+      expect(await fakeTronWeb().trx.sign(message)).toBe(
+        Trx.signString(message, PRIVATE_KEY.slice(2)),
+      )
+    },
+  )
+
+  it('refuses a message that is not hex, as TronWeb does', async () => {
+    const real = new TronWeb({ fullHost: 'http://127.0.0.1:1', privateKey: PRIVATE_KEY.slice(2) })
+    const expected = (await failure(real.trx.sign('zz'))) as Error
+    expect(await failure(fakeTronWeb().trx.sign('zz'))).toEqual(expected)
   })
 })
 
@@ -131,19 +142,21 @@ describe('2. parse', () => {
 })
 
 describe('3. domain and 4. digest', () => {
-  it.each([
+  describe.each([
     ['a number', CHAIN_ID],
     ['a 0x hex string', '0x2b6653dc'],
     ['a decimal string', '728126428'],
     ['a bigint', 728126428n],
-  ])('the digest equals viem hashTypedData when chainId is %s', async (_, chainId) => {
-    for (const withDomainType of [false, true]) {
+  ])('chainId given as %s', (_, chainId) => {
+    it.each([
+      ['derived', false],
+      ['declared in `types`', true],
+    ])('the digest equals viem hashTypedData with the domain type %s', async (__, declared) => {
       const tronWeb = fakeTronWeb()
-      await signTypedData(tronWeb, [WALLET, typedData(chainId, withDomainType)])
+      await signTypedData(tronWeb, [WALLET, typedData(chainId, declared)])
       // The signer receives the digest as hex without 0x.
-      expect(signedInput(tronWeb)).toBe(expectedDigest.slice(2))
-      expect(tronWeb.trx.sign).toHaveBeenCalledTimes(1)
-    }
+      expect(tronWeb.trx.sign).toHaveBeenCalledExactlyOnceWith(expectedDigest.slice(2))
+    })
   })
 
   it('honours an EIP712Domain entry in `types`', async () => {

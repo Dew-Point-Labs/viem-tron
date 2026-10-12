@@ -80,18 +80,16 @@ describe('1. validate', () => {
     expect(tronWeb.transactionBuilder.triggerSmartContract.mock.calls[0]?.[0]).toBe(CONTRACT_BASE58)
   })
 
-  it('accepts `input`, and `data` with `input` when they are equal ignoring case', async () => {
-    for (const tx of [
-      { input: DATA },
-      { data: DATA, input: DATA.toLowerCase() },
-      { data: DATA, input: null },
-    ]) {
-      const tronWeb = fakeTronWeb()
-      await send(tronWeb, { to: CONTRACT, ...tx })
-      expect(tronWeb.transactionBuilder.triggerSmartContract.mock.calls[0]?.[2].input).toBe(
-        DATA.slice(2),
-      )
-    }
+  it.each([
+    [{ input: DATA }],
+    [{ data: DATA, input: DATA.toLowerCase() }],
+    [{ data: DATA, input: null }],
+  ])('accepts `input`, and `data` with an `input` equal ignoring case: %o', async (tx) => {
+    const tronWeb = fakeTronWeb()
+    await send(tronWeb, { to: CONTRACT, ...tx })
+    expect(tronWeb.transactionBuilder.triggerSmartContract.mock.calls[0]?.[2].input).toBe(
+      DATA.slice(2),
+    )
   })
 
   it('rejects `data` and `input` that differ', async () => {
@@ -693,7 +691,7 @@ describe('5. sign', () => {
     },
   )
 
-  it.each([
+  describe.each([
     ['is undefined', () => undefined],
     ['is null', () => null],
     ['is a string', () => '0xsignature'],
@@ -706,20 +704,19 @@ describe('5. sign', () => {
       (tx: { txID: string }) => ({ ...tx, txID: tx.txID.toUpperCase(), signature: ['ab'] }),
     ],
     ['has no txID', () => ({ signature: ['ab'] })],
-  ])('throws SigningError and broadcasts nothing when the result %s', async (_, result) => {
-    for (const tx of [
-      { to: CONTRACT, data: DATA },
-      { to: CONTRACT, value: 1 },
-    ]) {
+  ])('a result that %s', (_, result) => {
+    it.each([
+      ['a contract call', { to: CONTRACT, data: DATA }],
+      ['a TRX transfer', { to: CONTRACT, value: 1 }],
+    ])('is SigningError for %s, and nothing is broadcast', async (__, tx) => {
       const tronWeb = fakeTronWeb()
       tronWeb.trx.sign.mockImplementationOnce((input) =>
         Promise.resolve(result(input as { txID: string })),
       )
-      const error = await failure(send(tronWeb, tx))
-      expect(error).toBeInstanceOf(SigningError)
+      expect(await failure(send(tronWeb, tx))).toBeInstanceOf(SigningError)
       expect(callCounts(tronWeb).sign).toBe(1)
       expect(callCounts(tronWeb).broadcast).toBe(0)
-    }
+    })
   })
 })
 

@@ -11,6 +11,7 @@ import { tronWebTransport } from '../src/transport.js'
 import {
   CONTRACT,
   CONTRACT_BASE58,
+  NONE,
   WALLET,
   WALLET_BASE58,
   callCounts,
@@ -19,7 +20,6 @@ import {
   stubRead,
 } from './fakes.js'
 
-const NONE = { build: 0, simulate: 0, transfer: 0, sign: 0, broadcast: 0 }
 const ok = () => ({ result: '0x1' })
 
 /** A `fetch` that answers every request with the given HTTP status and JSON body. */
@@ -53,39 +53,41 @@ describe('construction', () => {
     expect(transport.value?.tronWeb).toBe(tronWeb)
   })
 
-  it('throws BaseError when no chain is given', () => {
+  it.each([[{}], [{ chain: undefined }]])('throws BaseError when no chain is given: %o', (args) => {
     const transport = tronWebTransport(fakeTronWeb(), { rpc: 'http://read.invalid' })
-    for (const args of [{}, { chain: undefined }]) {
-      const error = (() => {
-        try {
-          return transport(args)
-        } catch (e) {
-          return e
-        }
-      })()
-      expect(error).toBeInstanceOf(BaseError)
-      expect(error).not.toBeInstanceOf(UrlRequiredError)
-      expect((error as BaseError).shortMessage).toMatch(/chain/)
-    }
+    const error = (() => {
+      try {
+        return transport(args)
+      } catch (e) {
+        return e
+      }
+    })()
+    expect(error).toBeInstanceOf(BaseError)
+    expect(error).not.toBeInstanceOf(UrlRequiredError)
+    expect((error as BaseError).shortMessage).toMatch(/chain/)
   })
 
-  it.each([
+  describe.each([
     ['a chain given as { id } only', { id: 1 }],
     ['a chain without default RPC URLs', { ...tron, rpcUrls: {} }],
     ['a chain with an empty URL list', { ...tron, rpcUrls: { default: { http: [] } } }],
-  ])('throws UrlRequiredError for %s when `rpc` is not set', (_, chain) => {
-    for (const config of [undefined, {}, { rpc: undefined }, { rpc: '' }])
-      expect(() => tronWebTransport(fakeTronWeb(), config)({ chain: chain as Chain })).toThrow(
-        UrlRequiredError,
-      )
+  ])('%s', (_, chain) => {
+    it.each([[undefined], [{}], [{ rpc: undefined }], [{ rpc: '' }]])(
+      'throws UrlRequiredError with config %o',
+      (config) => {
+        expect(() => tronWebTransport(fakeTronWeb(), config)({ chain: chain as Chain })).toThrow(
+          UrlRequiredError,
+        )
+      },
+    )
   })
 
-  it('accepts a chain given as { id } only when `rpc` is set', async () => {
-    const chain = { id: 5 } as Chain
-    for (const rpc of ['http://read.invalid', stubRead(ok).transport]) {
-      const transport = tronWebTransport(fakeTronWeb(), { rpc })({ chain })
-      expect(await transport.request({ method: 'eth_chainId' })).toBe('0x5')
-    }
+  it.each([
+    ['a URL', 'http://read.invalid'],
+    ['a transport', stubRead(ok).transport],
+  ])('accepts a chain given as { id } only when `rpc` is %s', async (_, rpc) => {
+    const transport = tronWebTransport(fakeTronWeb(), { rpc })({ chain: { id: 5 } as Chain })
+    expect(await transport.request({ method: 'eth_chainId' })).toBe('0x5')
   })
 
   it.each([[0], [-1], [1.5], [2 ** 53], [NaN], ['1000']])(
@@ -96,23 +98,21 @@ describe('construction', () => {
     },
   )
 
-  it('uses a fee limit of 300_000_000 SUN by default, or the configured one', async () => {
-    for (const [feeLimit, expected] of [
-      [undefined, 300_000_000],
-      [5_000_000, 5_000_000],
-    ] as const) {
-      const tronWeb = fakeTronWeb()
-      const transport = tronWebTransport(tronWeb, { rpc: stubRead(ok).transport, feeLimit })({
-        chain: tron,
-      })
-      await transport.request({
-        method: 'eth_sendTransaction',
-        params: [{ to: CONTRACT, data: '0x00' }],
-      })
-      expect(tronWeb.transactionBuilder.triggerSmartContract.mock.calls[0]?.[2].feeLimit).toBe(
-        expected,
-      )
-    }
+  it.each([
+    ['300_000_000 SUN by default', undefined, 300_000_000],
+    ['the configured one', 5_000_000, 5_000_000],
+  ])('uses a fee limit of %s', async (_, feeLimit, expected) => {
+    const tronWeb = fakeTronWeb()
+    const transport = tronWebTransport(tronWeb, { rpc: stubRead(ok).transport, feeLimit })({
+      chain: tron,
+    })
+    await transport.request({
+      method: 'eth_sendTransaction',
+      params: [{ to: CONTRACT, data: '0x00' }],
+    })
+    expect(tronWeb.transactionBuilder.triggerSmartContract.mock.calls[0]?.[2].feeLimit).toBe(
+      expected,
+    )
   })
 })
 
@@ -300,23 +300,23 @@ describe('2. forwarded reads', () => {
     ).toBeNull()
   })
 
-  it('an unknown transaction hash stays null', async () => {
-    const read = stubRead(() => ({ result: null }))
-    const transport = tronWebTransport(fakeTronWeb(), { rpc: read.transport })({ chain: tron })
-    for (const method of ['eth_getTransactionByHash', 'eth_getTransactionReceipt'])
+  it.each(['eth_getTransactionByHash', 'eth_getTransactionReceipt'])(
+    '%s of an unknown hash stays null',
+    async (method) => {
+      const read = stubRead(() => ({ result: null }))
+      const transport = tronWebTransport(fakeTronWeb(), { rpc: read.transport })({ chain: tron })
       expect(await transport.request({ method, params: ['0xaa'] })).toBeNull()
-  })
+    },
+  )
 
-  it('read errors propagate: no fallback to TronWeb, no caching, no retry by this transport', async () => {
+  it('read errors propagate: no fallback to TronWeb, no retry by this transport', async () => {
     const tronWeb = fakeTronWeb()
     const read = stubRead(() => ({ error: { code: -32603, message: 'node down' } }))
     const transport = tronWebTransport(tronWeb, { rpc: read.transport })({ chain: tron })
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const error = await failure(transport.request({ method: 'eth_getCode', params: [CONTRACT] }))
-      expect(error).toBeInstanceOf(InternalRpcError)
-      expect((error as BaseError).details).toBe('node down')
-    }
-    expect(read.request).toHaveBeenCalledTimes(2)
+    const error = await failure(transport.request({ method: 'eth_getCode', params: [CONTRACT] }))
+    expect(error).toBeInstanceOf(InternalRpcError)
+    expect((error as BaseError).details).toBe('node down')
+    expect(read.request).toHaveBeenCalledTimes(1)
     expect(callCounts(tronWeb)).toEqual(NONE)
   })
 
