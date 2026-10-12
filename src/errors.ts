@@ -112,12 +112,14 @@ export function invalidParams(reason: string, cause?: unknown): InvalidParamsRpc
 }
 
 const USER_REJECTION =
-  /declined by user|user (reject|denied|cancel)|(cancell?ed|rejected|denied) by (the )?user/i
+  /\b(declined by user\b|user (reject|denied|cancel)|(cancell?ed|rejected|denied) by (the )?user\b)/i
 
 /** Maps a value thrown by the signer to a user rejection (4001) or a {@link SigningError}. */
 export function signingFailure(thrown: unknown): UserRejectedRequestError | SigningError {
   const text = messageOf(thrown)
-  const code: unknown = isRecord(thrown) ? thrown.code : undefined
+  // Some wallets nest the provider error: `{ error: { code: 4001 } }`.
+  const source = isRecord(thrown) && isRecord(thrown.error) ? thrown.error : thrown
+  const code: unknown = isRecord(source) ? source.code : undefined
   const rejected = code === 4001 || code === '4001' || USER_REJECTION.test(text)
   if (!rejected)
     return new SigningError(`Signing failed: ${text || 'unknown error'}`, { cause: thrown })

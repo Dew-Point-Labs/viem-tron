@@ -141,25 +141,36 @@ describe('signingFailure', () => {
     })
   })
 
-  it.each([[{ code: 4001, message: 'nope' }], [{ code: 4001 }], [{ code: '4001' }]])(
-    'maps %o to UserRejectedRequestError whatever the text',
-    (thrown) => {
-      expect(signingFailure(thrown)).toBeInstanceOf(UserRejectedRequestError)
-    },
-  )
+  it.each([
+    [{ code: 4001, message: 'nope' }],
+    [{ code: 4001 }],
+    [{ code: '4001' }],
+    [{ error: { code: 4001 } }],
+    [{ error: { code: '4001', message: 'x' } }],
+  ])('maps %o to UserRejectedRequestError whatever the text', (thrown) => {
+    expect(signingFailure(thrown)).toBeInstanceOf(UserRejectedRequestError)
+  })
 
-  it.each(['Transaction rejected', 'rejected', 'Rejected: user has no energy', 'denied'])(
-    'node wording %j is not a user rejection',
-    (text) => {
-      expect(signingFailure(text)).toBeInstanceOf(SigningError)
-      expect(signingFailure(new Error(text))).toBeInstanceOf(SigningError)
-    },
-  )
+  it.each([
+    'Transaction rejected',
+    'rejected',
+    'Rejected: user has no energy',
+    'denied',
+    'superuser rejects nothing',
+    'The superuser denied it',
+    'request cancelled by username',
+  ])('node wording %j is not a user rejection', (text) => {
+    expect(signingFailure(text)).toBeInstanceOf(SigningError)
+    expect(signingFailure(new Error(text))).toBeInstanceOf(SigningError)
+  })
 
   it.each([
     ['Invalid transaction'],
     [new Error('Private key does not match')],
     [{ code: 500 }],
+    [{ error: { code: 500 } }],
+    [{ error: 4001 }],
+    [{ code: 5000 }],
     [undefined],
     [null],
     [4001],
