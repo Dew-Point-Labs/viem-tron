@@ -7,6 +7,7 @@ import {
   SimulationUnavailableError,
   TransactionBuildError,
   TransactionRevertedError,
+  TronWebTransportError,
   guard,
   invalidParams,
   messageOf,
@@ -55,18 +56,21 @@ describe('error classes', () => {
     ['BroadcastIndeterminateError', new BroadcastIndeterminateError('0xab', cause)],
   ] as const
 
-  it.each(cases)('%s extends viem BaseError, has no code and keeps the cause', (name, error) => {
-    expect(error).toBeInstanceOf(BaseError)
-    expect(error.name).toBe(name)
-    expect('code' in error).toBe(false)
-    expect(error.cause).toBe(cause)
-    expect(error.details).toBe('original')
-  })
+  it.each(cases)(
+    '%s extends the base class, carries code -32003 and keeps the cause',
+    (name, error) => {
+      expect(error).toBeInstanceOf(BaseError)
+      expect(error.name).toBe(name)
+      expect(error).toBeInstanceOf(TronWebTransportError)
+      expect(error.code).toBe(-32003)
+      expect(error.cause).toBe(cause)
+      expect(error.details).toBe(error.shortMessage)
+    },
+  )
 
   it('keeps a thrown string or object as the cause, verbatim', () => {
     const thrown = { message: 'object' }
     expect(new SigningError('m', 'text').cause).toBe('text')
-    expect(new SigningError('m', 'text').details).toBe('text')
     expect(new SigningError('m', thrown).cause).toBe(thrown)
     expect(new SigningError('m').cause).toBeUndefined()
   })

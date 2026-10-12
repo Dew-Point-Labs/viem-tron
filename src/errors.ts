@@ -19,16 +19,25 @@ export function messageOf(source: unknown): string {
   return /^[\x20-\x7e]+$/.test(decoded) ? decoded : text
 }
 
-class TronError extends BaseError {
+/**
+ * Base class of every Tron-specific failure. viem surfaces these wrapped in its
+ * `TransactionRejectedRpcError`; find them with `error.walk((e) => e instanceof TronWebTransportError)`.
+ */
+export class TronWebTransportError extends BaseError {
+  // The one code viem neither retries nor passes to the next transport of a `fallback()`.
+  readonly code = -32003
+
   constructor(shortMessage: string, cause?: unknown) {
-    super(shortMessage, { details: messageOf(cause) })
+    super(shortMessage)
+    // viem's wrapper shows only the `details` of its cause: keep the whole message visible there.
+    this.details = shortMessage
     // Wallets throw strings and plain objects; viem's own `cause` option only takes an Error.
     this.cause = cause
   }
 }
 
 /** The pre-sign simulation reverted or ran out of energy. Nothing was signed. */
-export class TransactionRevertedError extends TronError {
+export class TransactionRevertedError extends TronWebTransportError {
   override name = 'TransactionRevertedError'
   /** `'OUT_OF_ENERGY'` when the call ran out of energy. */
   reason?: 'OUT_OF_ENERGY' | undefined
@@ -43,22 +52,22 @@ export class TransactionRevertedError extends TronError {
 }
 
 /** The pre-sign simulation could not be performed. Nothing was signed. */
-export class SimulationUnavailableError extends TronError {
+export class SimulationUnavailableError extends TronWebTransportError {
   override name = 'SimulationUnavailableError'
 }
 
 /** The node refused to build the transaction. Nothing was signed. */
-export class TransactionBuildError extends TronError {
+export class TransactionBuildError extends TronWebTransportError {
   override name = 'TransactionBuildError'
 }
 
 /** The signer failed or returned an unusable result. Nothing was broadcast. */
-export class SigningError extends TronError {
+export class SigningError extends TronWebTransportError {
   override name = 'SigningError'
 }
 
 /** The node refused the signed transaction. */
-export class BroadcastError extends TronError {
+export class BroadcastError extends TronWebTransportError {
   override name = 'BroadcastError'
   /** The node's error code, for example `SIGERROR`. */
   nodeCode?: string | undefined
@@ -73,7 +82,7 @@ export class BroadcastError extends TronError {
  * The broadcast outcome is unknown: the transaction may have been accepted. Look
  * `transactionId` up before sending again.
  */
-export class BroadcastIndeterminateError extends TronError {
+export class BroadcastIndeterminateError extends TronWebTransportError {
   override name = 'BroadcastIndeterminateError'
   /** Id of the signed transaction, `0x`-prefixed. */
   transactionId: Hex

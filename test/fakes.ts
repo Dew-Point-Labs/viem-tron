@@ -233,3 +233,9 @@ export const callCounts = (tronWeb: FakeTronWeb) => ({
   sign: tronWeb.trx.sign.mock.calls.length,
   broadcast: tronWeb.trx.sendRawTransaction.mock.calls.length,
 })
+
+/** Call counts of a TronWeb nothing reached. */
+export const NONE = { build: 0, simulate: 0, transfer: 0, sign: 0, broadcast: 0 }
+
+/** Hex of a text without 0x, the way a node encodes its messages. */
+export const hex = (text: string) => stringToHex(text).slice(2)

@@ -67,10 +67,13 @@ export function tronWebTransport(
       return normalizeReadResult(method, result)
     }
 
-    return createTransport(
-      // A wallet action must never be re-issued, whatever its error looks like.
+    const transport = createTransport(
       { key, name, type: 'tronWeb', retryCount: 0, request: request as EIP1193RequestFn },
       { tronWeb },
     )
+    // A wallet action must never be re-issued, even when the caller asks for retries.
+    const once: EIP1193RequestFn = (args, options) =>
+      transport.request(args, { ...options, retryCount: 0 })
+    return { ...transport, request: once }
   }
 }
