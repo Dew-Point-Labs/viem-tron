@@ -1,4 +1,4 @@
-import { InvalidParamsRpcError, UserRejectedRequestError } from 'viem'
+import { type BaseError, InvalidParamsRpcError, UserRejectedRequestError } from 'viem'
 import { describe, expect, it } from 'vitest'
 import {
   BroadcastError,
@@ -292,8 +292,10 @@ describe('3. build — contract call', () => {
       transaction: { txID: 'ab'.repeat(32), toJSON: () => 'x' },
     }
     tronWeb.transactionBuilder.triggerSmartContract.mockResolvedValueOnce(answer)
-    const error = await failure(send(tronWeb, { to: CONTRACT, data: DATA }))
+    const error = (await failure(send(tronWeb, { to: CONTRACT, data: DATA }))) as BaseError
     expect(error).toBeInstanceOf(TransactionBuildError)
+    expect(error.shortMessage).toBe('The built transaction could not be copied.')
+    expect((error.cause as Error).name).toBe('DataCloneError')
     expect(callCounts(tronWeb)).toEqual({ ...NONE, build: 1 })
   })
 
@@ -386,12 +388,19 @@ describe('3. build — TRX transfer', () => {
 describe('3. the built transaction must match the request', () => {
   type Value = Record<string, unknown>
   interface Built {
-    raw_data: { contract: { type: string; parameter?: { value: Value } }[] }
+    raw_data: {
+      fee_limit?: unknown
+      contract: { type: string; Permission_id?: number; parameter?: { value: Value } }[]
+    }
   }
   const valueOf = (tx: Built) => (tx.raw_data.contract[0]?.parameter as { value: Value }).value
 
   /** Lets the fake build, then alters the transaction the way a hostile node could. */
-  const build = async (kind: 'call' | 'transfer', alter: (tx: Built) => void) => {
+  const build = async (
+    kind: 'call' | 'transfer',
+    alter: (tx: Built) => void,
+    extra: object = {},
+  ) => {
     const tronWeb = fakeTronWeb()
     if (kind === 'call') {
       const real = tronWeb.transactionBuilder.triggerSmartContract.getMockImplementation()
@@ -409,7 +418,7 @@ describe('3. the built transaction must match the request', () => {
       })
     }
     const tx = kind === 'call' ? { to: CONTRACT, data: DATA, value: 7 } : { to: CONTRACT, value: 7 }
-    return { tronWeb, result: await send(tronWeb, tx).catch((e: unknown) => e) }
+    return { tronWeb, result: await send(tronWeb, { ...tx, ...extra }).catch((e: unknown) => e) }
   }
 
   const shape: [string, (tx: Built) => void][] = [
@@ -426,6 +435,10 @@ describe('3. the built transaction must match the request', () => {
     ['an entry without parameter', (tx) => delete tx.raw_data.contract[0]?.parameter],
     ['another owner', (tx) => (valueOf(tx).owner_address = CONTRACT_41)],
     ['a malformed owner', (tx) => (valueOf(tx).owner_address = '41zz')],
+    [
+      'an added permission id',
+      (tx) => Object.assign(tx.raw_data.contract[0] ?? {}, { Permission_id: 2 }),
+    ],
   ]
   const swapped: Record<'call' | 'transfer', [string, (tx: Built) => void][]> = {
     call: [
@@ -441,6 +454,10 @@ describe('3. the built transaction must match the request', () => {
       ['another call value', (tx) => (valueOf(tx).call_value = 8)],
       ['no call value', (tx) => delete valueOf(tx).call_value],
       ['a call value as a string', (tx) => (valueOf(tx).call_value = '7')],
+      ['an attached token value', (tx) => (valueOf(tx).call_token_value = 5)],
+      ['a raised fee limit', (tx) => (tx.raw_data.fee_limit = FEE_LIMIT + 1)],
+      ['no fee limit', (tx) => delete tx.raw_data.fee_limit],
+      ['a fee limit as a string', (tx) => (tx.raw_data.fee_limit = '1')],
     ],
     transfer: [
       ...shape,
@@ -477,6 +494,45 @@ describe('3. the built transaction must match the request', () => {
         else value.to_address = CONTRACT_BASE58
       })
       expect(result).toMatch(/^0x[0-9a-f]{64}$/)
+    })
+  })
+
+  it.each([
+    ['a zero token value', (tx: Built) => (valueOf(tx).call_token_value = 0)],
+    [
+      'a key the transport does not know',
+      (tx: Built) => (valueOf(tx).note = 'added by the wallet'),
+    ],
+    ['a lower fee limit', (tx: Built) => (tx.raw_data.fee_limit = 1)],
+  ])('a call with %s is accepted', async (_, alter) => {
+    const { result } = await build('call', alter)
+    expect(result).toMatch(/^0x[0-9a-f]{64}$/)
+  })
+
+  it('a transfer carries no fee limit and is accepted', async () => {
+    const { tronWeb, result } = await build('transfer', (tx) => {
+      expect(tx.raw_data.fee_limit).toBeUndefined()
+    })
+    expect(result).toMatch(/^0x[0-9a-f]{64}$/)
+    expect(callCounts(tronWeb)).toEqual({ ...NONE, transfer: 1, sign: 1, broadcast: 1 })
+  })
+
+  describe.each(['call', 'transfer'] as const)('%s with permissionId 2', (kind) => {
+    it('is accepted when the built transaction carries it', async () => {
+      const { result } = await build(kind, () => undefined, { permissionId: 2 })
+      expect(result).toMatch(/^0x[0-9a-f]{64}$/)
+    })
+
+    it.each([
+      [
+        'another permission id',
+        (tx: Built) => Object.assign(tx.raw_data.contract[0] ?? {}, { Permission_id: 3 }),
+      ],
+      ['no permission id', (tx: Built) => delete tx.raw_data.contract[0]?.Permission_id],
+    ])('is refused when the built transaction has %s', async (_, alter) => {
+      const { tronWeb, result } = await build(kind, alter, { permissionId: 2 })
+      expect(result).toBeInstanceOf(TransactionBuildError)
+      expect(callCounts(tronWeb)).toEqual({ ...NONE, [kind === 'call' ? 'build' : 'transfer']: 1 })
     })
   })
 
@@ -816,9 +872,46 @@ describe('5. the signer cannot change what is broadcast', () => {
         Promise.resolve({ ...(input as object), signature }),
       )
       await send(tronWeb, tx)
-      expect(tronWeb.trx.sendRawTransaction.mock.calls[0]?.[0]).toMatchObject({ signature })
+      // What reaches the node has no 0x prefix.
+      expect(tronWeb.trx.sendRawTransaction.mock.calls[0]?.[0]).toMatchObject({
+        signature: signature.map((entry) => entry.replace(/^0x/, '')),
+      })
     },
   )
+
+  it('reads the signature once: a result that answers differently later cannot swap it', async () => {
+    const tronWeb = fakeTronWeb()
+    let reads = 0
+    tronWeb.trx.sign.mockImplementationOnce((input) =>
+      Promise.resolve(
+        Object.defineProperty({ ...(input as object) }, 'signature', {
+          enumerable: true,
+          get: () => (reads++ === 0 ? [SIGNATURE] : ['cd'.repeat(65), 'not a signature']),
+        }),
+      ),
+    )
+    await send(tronWeb, tx)
+    expect(reads).toBe(1)
+    expect(tronWeb.trx.sendRawTransaction.mock.calls[0]?.[0]).toMatchObject({
+      signature: [SIGNATURE],
+    })
+  })
+
+  it('a signature list that changes after the check does not change what is broadcast', async () => {
+    const tronWeb = fakeTronWeb()
+    const signature = [SIGNATURE]
+    tronWeb.trx.sign.mockImplementationOnce((input) =>
+      Promise.resolve({ ...(input as object), signature }),
+    )
+    tronWeb.trx.sendRawTransaction.mockImplementationOnce((signed) => {
+      signature.push('cd'.repeat(65))
+      return Promise.resolve({ result: true, sent: (signed as { signature: string[] }).signature })
+    })
+    await send(tronWeb, tx)
+    const sent = tronWeb.trx.sendRawTransaction.mock.calls[0]?.[0] as { signature: string[] }
+    expect(sent.signature).toEqual([SIGNATURE])
+    expect(sent.signature).not.toBe(signature)
+  })
 })
 
 describe('6. broadcast and 7. return', () => {
@@ -926,8 +1019,10 @@ describe('6. broadcast and 7. return', () => {
   it.each([
     [{ code: 'DUP_TRANSACTION_ERROR', message: hex('Dup transaction.') }],
     [{ result: false, code: 'DUP_TRANSACTION_ERROR', txid: 'aa' }],
+    [{ code: 'OTHER_ERROR', message: hex('other error : null') }],
+    [{ result: false, code: 'OTHER_ERROR' }],
   ])(
-    'a node that already knows the transaction is BroadcastIndeterminateError: %o',
+    'a node code that leaves the outcome open is BroadcastIndeterminateError: %o',
     async (answer) => {
       const tronWeb = fakeTronWeb()
       tronWeb.trx.sendRawTransaction.mockResolvedValueOnce(answer)

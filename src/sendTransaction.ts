@@ -57,6 +57,8 @@ interface Request {
   to: Address
   calldata: string
   value: number
+  feeLimit: number
+  permissionId: number | undefined
 }
 
 /**
@@ -68,12 +70,14 @@ function matchesRequest(
   transaction: Record<string, unknown>,
   request: Request,
 ): boolean {
-  const contracts = isRecord(transaction.raw_data) ? transaction.raw_data.contract : undefined
-  if (!Array.isArray(contracts) || contracts.length !== 1) return false
+  const { raw_data } = transaction
+  const contracts = isRecord(raw_data) ? raw_data.contract : undefined
+  if (!isRecord(raw_data) || !Array.isArray(contracts) || contracts.length !== 1) return false
   const contract: unknown = contracts[0]
   if (!isRecord(contract) || !isRecord(contract.parameter)) return false
   const { value } = contract.parameter
   if (!isRecord(value) || to0x(tronWeb, value.owner_address) !== request.from) return false
+  if ((contract.Permission_id ?? 0) !== (request.permissionId ?? 0)) return false
 
   if (request.calldata === '0x')
     return (
@@ -85,6 +89,10 @@ function matchesRequest(
     contract.type === 'TriggerSmartContract' &&
     to0x(tronWeb, value.contract_address) === request.to &&
     (value.call_value ?? 0) === request.value &&
+    // A TRC-10 token amount attached to the call would move value nobody asked for.
+    (value.call_token_value ?? 0) === 0 &&
+    typeof raw_data.fee_limit === 'number' &&
+    raw_data.fee_limit <= request.feeLimit &&
     typeof value.data === 'string' &&
     `0x${value.data}`.toLowerCase() === request.calldata.toLowerCase()
   )
@@ -166,12 +174,13 @@ export async function sendTransaction(
   // reach the node.
   const transaction = await guard(
     () => structuredClone(fromBuilder),
-    () => buildError(built),
+    (cause) => new TransactionBuildError('The built transaction could not be copied.', { cause }),
   )
   const { txID } = transaction
   if (typeof txID !== 'string' || !/^[0-9a-f]{64}$/i.test(txID)) throw buildError(built)
 
-  if (!matchesRequest(tronWeb, transaction, { from, to, calldata, value }))
+  const request = { from, to, calldata, value, feeLimit, permissionId: permission.permissionId }
+  if (!matchesRequest(tronWeb, transaction, request))
     throw new TransactionBuildError('The built transaction does not match the request.', {
       cause: built,
     })
@@ -192,27 +201,29 @@ export async function sendTransaction(
   }
 
   const signed = await guard(() => tronWeb.trx.sign(fromBuilder), signingFailure)
-  const isSignature = (entry: unknown) =>
+  // Read once and copied: the result is the wallet's object and may answer differently later.
+  const returned: unknown = isRecord(signed) && signed.txID === txID ? signed.signature : undefined
+  const signature: unknown[] = Array.isArray(returned) ? [...(returned as unknown[])] : []
+  const isSignature = (entry: unknown): entry is string =>
     typeof entry === 'string' && /^(?:0x)?[0-9a-f]{130}$/i.test(entry)
-  if (
-    !isRecord(signed) ||
-    !Array.isArray(signed.signature) ||
-    signed.signature.length === 0 ||
-    !signed.signature.every(isSignature) ||
-    signed.txID !== txID
-  )
+  if (signature.length === 0 || !signature.every(isSignature))
     throw new SigningError('The signer returned an unusable result.', { cause: signed })
 
   const id: Hex = `0x${txID.toLowerCase()}`
   const answer = await guard(
-    () => tronWeb.trx.sendRawTransaction({ ...transaction, signature: signed.signature }),
+    () =>
+      tronWeb.trx.sendRawTransaction({
+        ...transaction,
+        signature: signature.map((entry) => entry.replace(/^0x/, '')),
+      }),
     (cause) => new BroadcastIndeterminateError(id, { cause }),
   )
   if (isRecord(answer)) {
     if (answer.result === true) return id
-    // The node already knows this transaction, so an earlier broadcast may have gone through.
-    const duplicate = answer.code === 'DUP_TRANSACTION_ERROR'
-    if (!duplicate && (answer.result === false || answer.code != null))
+    // The node already knows this transaction, or failed in its catch-all after possibly
+    // queueing it: either way it may have gone through.
+    const open = answer.code === 'DUP_TRANSACTION_ERROR' || answer.code === 'OTHER_ERROR'
+    if (!open && (answer.result === false || answer.code != null))
       throw new BroadcastError(
         `The node refused the transaction: ${messageOf(answer) || 'no message'}`,
         { cause: answer, nodeCode: typeof answer.code === 'string' ? answer.code : undefined },
