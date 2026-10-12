@@ -53,8 +53,15 @@ export function fromHex(address: string): string {
   return base58
 }
 
-function transaction(type: string, value: Record<string, unknown>, extra: object = {}) {
-  const raw_data = { contract: [{ type, parameter: { value } }], ...extra }
+function transaction(
+  type: string,
+  value: Record<string, unknown>,
+  permissionId?: number,
+  extra: object = {},
+) {
+  const parameter = { value, type_url: `type.googleapis.com/protocol.${type}` }
+  const contract = { parameter, type, ...(permissionId ? { Permission_id: permissionId } : {}) }
+  const raw_data = { contract: [contract], ...extra }
   const raw_data_hex = stringToHex(JSON.stringify(raw_data)).slice(2)
   return { visible: false, txID: sha256(`0x${raw_data_hex}`).slice(2), raw_data, raw_data_hex }
 }
@@ -72,7 +79,6 @@ function triggerValue(contract: string, options: TriggerOptions, issuer: string)
     owner_address: toHex(issuer),
     contract_address: toHex(contract),
     ...(options.callValue ? { call_value: options.callValue } : {}),
-    ...(options.permissionId ? { Permission_id: options.permissionId } : {}),
   }
 }
 
@@ -126,7 +132,7 @@ export function fakeTronWeb() {
           const value = triggerValue(contract, options, issuer)
           return Promise.resolve({
             result: { result: true },
-            transaction: transaction('TriggerSmartContract', value, {
+            transaction: transaction('TriggerSmartContract', value, options.permissionId, {
               fee_limit: options.feeLimit,
             }),
           })
@@ -160,12 +166,7 @@ export function fakeTronWeb() {
           if (toHex(to) === toHex(from)) throw new Error('Cannot transfer TRX to the same account')
           if (!Number.isInteger(amount) || amount <= 0) throw new Error('Invalid amount provided')
           const value = { to_address: toHex(to), owner_address: toHex(from), amount }
-          return Promise.resolve(
-            transaction('TransferContract', {
-              ...value,
-              ...(options.permissionId ? { Permission_id: options.permissionId } : {}),
-            }),
-          )
+          return Promise.resolve(transaction('TransferContract', value, options.permissionId))
         },
       ),
     },

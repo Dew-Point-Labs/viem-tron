@@ -1,4 +1,4 @@
-import { InvalidParamsRpcError, UserRejectedRequestError, stringToHex } from 'viem'
+import { InvalidParamsRpcError, UserRejectedRequestError } from 'viem'
 import { describe, expect, it } from 'vitest'
 import {
   BroadcastError,
@@ -14,6 +14,7 @@ import {
   CONTRACT_41,
   CONTRACT_BASE58,
   type FakeTronWeb,
+  NONE,
   OTHER,
   WALLET,
   WALLET_41,
@@ -21,14 +22,13 @@ import {
   callCounts,
   failure,
   fakeTronWeb,
+  hex,
   rejection,
   thrownForms,
 } from './fakes.js'
 
 const FEE_LIMIT = 300_000_000
 const DATA = '0xA9059cbb00'
-const NONE = { build: 0, simulate: 0, transfer: 0, sign: 0, broadcast: 0 }
-const hex = (text: string) => stringToHex(text).slice(2)
 const send = (tronWeb: FakeTronWeb, tx: unknown) => sendTransaction(tronWeb, FEE_LIMIT, [tx])
 
 async function expectInvalidParams(tx: unknown, tronWeb = fakeTronWeb()) {
@@ -385,6 +385,123 @@ describe('3. build — TRX transfer', () => {
   )
 })
 
+describe('3. the built transaction must match the request', () => {
+  type Value = Record<string, unknown>
+  interface Built {
+    raw_data: { contract: { type: string; parameter?: { value: Value } }[] }
+  }
+  const valueOf = (tx: Built) => (tx.raw_data.contract[0]?.parameter as { value: Value }).value
+
+  /** Lets the fake build, then alters the transaction the way a hostile node could. */
+  const build = async (kind: 'call' | 'transfer', alter: (tx: Built) => void) => {
+    const tronWeb = fakeTronWeb()
+    if (kind === 'call') {
+      const real = tronWeb.transactionBuilder.triggerSmartContract.getMockImplementation()
+      tronWeb.transactionBuilder.triggerSmartContract.mockImplementationOnce(async (...args) => {
+        const answer = (await real?.(...args)) as { transaction: Built }
+        alter(answer.transaction)
+        return answer
+      })
+    } else {
+      const real = tronWeb.transactionBuilder.sendTrx.getMockImplementation()
+      tronWeb.transactionBuilder.sendTrx.mockImplementationOnce(async (...args) => {
+        const answer = (await real?.(...args)) as Built
+        alter(answer)
+        return answer
+      })
+    }
+    const tx = kind === 'call' ? { to: CONTRACT, data: DATA, value: 7 } : { to: CONTRACT, value: 7 }
+    return { tronWeb, result: await send(tronWeb, tx).catch((e: unknown) => e) }
+  }
+
+  const shape: [string, (tx: Built) => void][] = [
+    ['no raw_data', (tx) => delete (tx as Partial<Built>).raw_data],
+    ['no contract entry', (tx) => (tx.raw_data.contract = [])],
+    [
+      'two contract entries',
+      (tx) =>
+        tx.raw_data.contract.push({
+          ...tx.raw_data.contract[0],
+        } as Built['raw_data']['contract'][0]),
+    ],
+    ['a contract list that is not a list', (tx) => Object.assign(tx.raw_data, { contract: {} })],
+    ['an entry without parameter', (tx) => delete tx.raw_data.contract[0]?.parameter],
+    ['another owner', (tx) => (valueOf(tx).owner_address = CONTRACT_41)],
+    ['a malformed owner', (tx) => (valueOf(tx).owner_address = '41zz')],
+  ]
+  const swapped: Record<'call' | 'transfer', [string, (tx: Built) => void][]> = {
+    call: [
+      ...shape,
+      [
+        'another contract type',
+        (tx) => Object.assign(tx.raw_data.contract[0] ?? {}, { type: 'TransferContract' }),
+      ],
+      ['another contract', (tx) => (valueOf(tx).contract_address = WALLET_41)],
+      ['other calldata', (tx) => (valueOf(tx).data = 'a9059cbb01')],
+      ['longer calldata', (tx) => (valueOf(tx).data = 'a9059cbb0000')],
+      ['no calldata', (tx) => delete valueOf(tx).data],
+      ['another call value', (tx) => (valueOf(tx).call_value = 8)],
+      ['no call value', (tx) => delete valueOf(tx).call_value],
+      ['a call value as a string', (tx) => (valueOf(tx).call_value = '7')],
+    ],
+    transfer: [
+      ...shape,
+      [
+        'another contract type',
+        (tx) => Object.assign(tx.raw_data.contract[0] ?? {}, { type: 'TriggerSmartContract' }),
+      ],
+      ['another recipient', (tx) => (valueOf(tx).to_address = WALLET_41)],
+      ['another amount', (tx) => (valueOf(tx).amount = 7_000_000)],
+      ['no amount', (tx) => delete valueOf(tx).amount],
+    ],
+  }
+
+  describe.each(['call', 'transfer'] as const)('%s', (kind) => {
+    it.each(swapped[kind])(
+      '%s → TransactionBuildError, nothing simulated, signed or broadcast',
+      async (_, alter) => {
+        const { tronWeb, result } = await build(kind, alter)
+        expect(result).toBeInstanceOf(TransactionBuildError)
+        expect((result as TransactionBuildError).shortMessage).toMatch(/does not match the request/)
+        expect(callCounts(tronWeb)).toEqual({
+          ...NONE,
+          [kind === 'call' ? 'build' : 'transfer']: 1,
+        })
+      },
+    )
+
+    it('accepts addresses in base58 or 0x form and hex in another case', async () => {
+      const { result } = await build(kind, (tx) => {
+        const value = valueOf(tx)
+        value.owner_address = WALLET_BASE58
+        if (kind === 'call')
+          Object.assign(value, { contract_address: CONTRACT, data: 'a9059CBB00' })
+        else value.to_address = CONTRACT_BASE58
+      })
+      expect(result).toMatch(/^0x[0-9a-f]{64}$/)
+    })
+  })
+
+  it('an absent call value equals a requested value of zero', async () => {
+    const tronWeb = fakeTronWeb()
+    expect(await send(tronWeb, { to: CONTRACT, data: DATA })).toMatch(/^0x[0-9a-f]{64}$/)
+  })
+
+  it('a call value added to a call that sends none is refused', async () => {
+    const tronWeb = fakeTronWeb()
+    const real = tronWeb.transactionBuilder.triggerSmartContract.getMockImplementation()
+    tronWeb.transactionBuilder.triggerSmartContract.mockImplementationOnce(async (...args) => {
+      const answer = (await real?.(...args)) as { transaction: Built }
+      valueOf(answer.transaction).call_value = 1_000_000
+      return answer
+    })
+    expect(await failure(send(tronWeb, { to: CONTRACT, data: DATA }))).toBeInstanceOf(
+      TransactionBuildError,
+    )
+    expect(callCounts(tronWeb)).toEqual({ ...NONE, build: 1 })
+  })
+})
+
 describe('4. simulate', () => {
   const SIMULATED = { ...NONE, build: 1, simulate: 1 }
   const simulate = async (answer: unknown, thrown = false) => {
@@ -723,9 +840,19 @@ describe('6. broadcast and 7. return', () => {
 
   it('returns the id in lowercase', async () => {
     const tronWeb = fakeTronWeb()
-    const txID = 'AB'.repeat(32)
-    tronWeb.transactionBuilder.sendTrx.mockResolvedValueOnce({ txID })
-    expect(await send(tronWeb, { to: CONTRACT, value: 1 })).toBe(`0x${'ab'.repeat(32)}`)
+    const real = tronWeb.transactionBuilder.sendTrx.getMockImplementation()
+    tronWeb.transactionBuilder.sendTrx.mockImplementationOnce(async (...args) => {
+      const built = (await real?.(...args)) as { txID: string }
+      return { ...built, txID: built.txID.toUpperCase() }
+    })
+    tronWeb.trx.sign.mockImplementationOnce((input) =>
+      Promise.resolve({ ...(input as object), signature: ['ab'.repeat(65)] }),
+    )
+    const id = await send(tronWeb, { to: CONTRACT, value: 1 })
+    expect(id).toMatch(/^0x[0-9a-f]{64}$/)
+    expect(tronWeb.trx.sendRawTransaction.mock.calls[0]?.[0]).toMatchObject({
+      txID: id.slice(2).toUpperCase(),
+    })
   })
 
   it.each([

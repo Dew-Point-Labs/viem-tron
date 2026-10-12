@@ -1,4 +1,4 @@
-import type { Hex } from 'viem'
+import type { Address, Hex } from 'viem'
 import { to0x, toBase58, walletAddress } from './address.js'
 import {
   BroadcastError,
@@ -51,6 +51,44 @@ function simulationError(source: unknown): Error {
   return new SimulationUnavailableError(
     `The transaction could not be simulated: ${text || 'unexpected answer from the node'}`,
     source,
+  )
+}
+
+interface Request {
+  from: Address
+  to: Address
+  calldata: string
+  value: number
+}
+
+/**
+ * Whether a built transaction is exactly the requested call or transfer: a node or builder
+ * must not be able to swap what the user is asked to sign.
+ */
+function matchesRequest(
+  tronWeb: TronWebLike,
+  transaction: Record<string, unknown>,
+  request: Request,
+): boolean {
+  const contracts = isRecord(transaction.raw_data) ? transaction.raw_data.contract : undefined
+  if (!Array.isArray(contracts) || contracts.length !== 1) return false
+  const contract: unknown = contracts[0]
+  if (!isRecord(contract) || !isRecord(contract.parameter)) return false
+  const { value } = contract.parameter
+  if (!isRecord(value) || to0x(tronWeb, value.owner_address) !== request.from) return false
+
+  if (request.calldata === '0x')
+    return (
+      contract.type === 'TransferContract' &&
+      to0x(tronWeb, value.to_address) === request.to &&
+      (value.amount ?? 0) === request.value
+    )
+  return (
+    contract.type === 'TriggerSmartContract' &&
+    to0x(tronWeb, value.contract_address) === request.to &&
+    (value.call_value ?? 0) === request.value &&
+    typeof value.data === 'string' &&
+    `0x${value.data}`.toLowerCase() === request.calldata.toLowerCase()
   )
 }
 
@@ -125,6 +163,9 @@ export async function sendTransaction(
   )
   const { txID } = transaction
   if (typeof txID !== 'string' || !/^[0-9a-f]{64}$/i.test(txID)) throw buildError(built)
+
+  if (!matchesRequest(tronWeb, transaction, { from, to, calldata, value }))
+    throw new TransactionBuildError('The built transaction does not match the request.', built)
 
   if (isCall) {
     const simulated = await guard(
