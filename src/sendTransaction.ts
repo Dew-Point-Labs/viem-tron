@@ -138,20 +138,29 @@ export async function sendTransaction(
   if (!isCall && value === 0)
     throw invalidParams('A transaction needs calldata or a positive `value`.')
 
-  const [recipient, sender] = [toBase58(tronWeb, to), toBase58(tronWeb, from)]
+  const recipient = toBase58(tronWeb, to)
+  const sender = toBase58(tronWeb, from)
   // The calldata goes out byte for byte as `input`; an empty selector makes TronWeb use it.
-  const call = { input: calldata.slice(2), ...(value > 0 && { callValue: value }), ...permission }
+  const call = {
+    input: calldata.slice(2),
+    ...(value > 0 ? { callValue: value } : {}),
+    ...permission,
+  }
   const builder = tronWeb.transactionBuilder
 
-  const built = await guard(
-    () =>
-      isCall
-        ? builder.triggerSmartContract(recipient, '', { feeLimit, ...call }, [], sender)
-        : builder.sendTrx(recipient, value, sender, permission),
-    buildError,
-  )
-  const accepted = isRecord(built) && isRecord(built.result) && built.result.result === true
-  const fromBuilder = !isCall ? built : accepted ? built.transaction : undefined
+  let built: unknown
+  let fromBuilder: unknown
+  if (isCall) {
+    built = await guard(
+      () => builder.triggerSmartContract(recipient, '', { feeLimit, ...call }, [], sender),
+      buildError,
+    )
+    if (isRecord(built) && isRecord(built.result) && built.result.result === true)
+      fromBuilder = built.transaction
+  } else {
+    built = await guard(() => builder.sendTrx(recipient, value, sender, permission), buildError)
+    fromBuilder = built
+  }
   if (!isRecord(fromBuilder)) throw buildError(built)
   // A private copy: a wallet may mutate the object it signs, and only what was built here may
   // reach the node.

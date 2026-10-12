@@ -50,12 +50,15 @@ export async function signTypedData(tronWeb: TronWebLike, params: unknown): Prom
   }
 
   const signature = await guard(() => tronWeb.trx.sign(digest.slice(2)), signingFailure)
-  const [, rs, vHex] =
+  const match =
     typeof signature === 'string'
-      ? (/^(?:0x)?([0-9a-f]{128})([0-9a-f]{2})$/i.exec(signature) ?? [])
-      : []
-  const v = parseInt(vHex ?? '', 16)
-  if (rs === undefined || ![0, 1, 27, 28].includes(v))
-    throw new SigningError('The signer did not return a 65-byte signature.', { cause: signature })
+      ? /^(?:0x)?(?<rs>[0-9a-f]{128})(?<v>00|01|1b|1c)$/i.exec(signature)
+      : null
+  if (!match?.groups?.rs || !match.groups.v)
+    throw new SigningError('The signer did not return a 65-byte signature with a known v.', {
+      cause: signature,
+    })
+  const { rs } = match.groups
+  const v = parseInt(match.groups.v, 16)
   return `0x${rs.toLowerCase()}${(v < 27 ? v + 27 : v).toString(16)}`
 }
