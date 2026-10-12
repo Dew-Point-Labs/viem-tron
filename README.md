@@ -9,7 +9,7 @@ Status: pre-release (0.x), not yet published to npm. The licence will be announc
 One rule: reads go to a Tron JSON-RPC endpoint, wallet actions go to TronWeb.
 
 - Nothing is emulated on top of TronWeb, and no value is fabricated. A method the endpoint does not answer is refused, not guessed.
-- A wallet action is never retried by the transport and has no timeout (a wallet prompt waits for the user).
+- A wallet action is issued at most once per request and has no timeout (a wallet prompt waits for the user). See [No repeated wallet actions](#no-repeated-wallet-actions).
 - `eth_chainId` and `net_version` are answered from the chain you pass to viem.
 
 ## Install
@@ -18,7 +18,8 @@ One rule: reads go to a Tron JSON-RPC endpoint, wallet actions go to TronWeb.
 pnpm add @dewpointlabs/viem-tron viem
 ```
 
-- Peer dependency: `viem >=2.21 <3`. There are no runtime dependencies.
+- Peer dependency: `viem >=2.21.55 <3`. There are no runtime dependencies.
+- Node 22 or newer, or a current browser.
 - The package does not import TronWeb. Your application installs `tronweb` if it needs its own instance; in a browser the wallet provides one.
 
 ## Quick start
@@ -63,21 +64,19 @@ if (!account) throw new Error('The TronWeb instance has no account')
 
 ### Custom read endpoint
 
-`rpc` is a URL, or a viem transport that is used as given.
+`rpc` is a URL, or a viem transport that is used as given. Pass a transport to set retries, a timeout or headers.
 
 ```ts
 import { fallback, http } from 'viem'
 
-// A URL: the package builds http(url, { retryCount, retryDelay, timeout }).
-tronWebTransport(tronWeb, {
-  rpc: 'https://api.trongrid.io/jsonrpc',
-  retryCount: 2,
-  timeout: 10_000,
-})
+// A URL: the package builds a plain http(url).
+tronWebTransport(tronWeb, { rpc: 'https://api.trongrid.io/jsonrpc' })
 
 // A viem transport: its own options apply.
 tronWebTransport(tronWeb, {
   rpc: http('https://api.trongrid.io/jsonrpc', {
+    retryCount: 2,
+    timeout: 10_000,
     fetchOptions: { headers: { 'TRON-PRO-API-KEY': process.env.TRONGRID_API_KEY ?? '' } },
   }),
 })
@@ -90,19 +89,14 @@ Without `rpc`, the first default HTTP URL of the chain is used. Creating the tra
 
 ## Configuration
 
-`tronWebTransport(tronWeb, config?)`. Every key is optional.
+`tronWebTransport(tronWeb, config?)`. Both keys are optional.
 
-| Key          | Type                  | Default                             | Meaning                                                                          |
-| ------------ | --------------------- | ----------------------------------- | -------------------------------------------------------------------------------- |
-| `rpc`        | `string \| Transport` | first default HTTP URL of the chain | Where reads go. A string becomes viem `http(url)`; a transport is used as given. |
-| `feeLimit`   | `number`              | `300_000_000` (300 TRX)             | Upper bound a contract call may burn, in SUN. Must be a positive safe integer.   |
-| `key`        | `string`              | `'tronWeb'`                         | viem transport key.                                                              |
-| `name`       | `string`              | `'TronWeb'`                         | viem transport name.                                                             |
-| `retryCount` | `number`              | viem `http()` default               | Retries of a failed read. Applies only when `rpc` is a string.                   |
-| `retryDelay` | `number` (ms)         | viem `http()` default               | Base delay between read retries. Applies only when `rpc` is a string.            |
-| `timeout`    | `number` (ms)         | viem `http()` default               | Timeout of a read. Applies only when `rpc` is a string.                          |
+| Key        | Type                  | Default                             | Meaning                                                                          |
+| ---------- | --------------------- | ----------------------------------- | -------------------------------------------------------------------------------- |
+| `rpc`      | `string \| Transport` | first default HTTP URL of the chain | Where reads go. A string becomes viem `http(url)`; a transport is used as given. |
+| `feeLimit` | `number`              | `300_000_000` (300 TRX)             | Upper bound a contract call may burn, in SUN. Must be a positive safe integer.   |
 
-When `rpc` is a transport, the three read options are ignored; configure them on that transport. Wallet actions are never retried and have no timeout, whatever these values are.
+The transport's viem `key` and `name` are fixed: `'tronWeb'` and `'TronWeb'`.
 
 ## Supported methods
 
@@ -137,9 +131,10 @@ Not supported: every other method is refused with viem's `MethodNotSupportedRpcE
 
 1. Validate the parameters (`InvalidParamsRpcError` on any problem).
 2. Build the transaction: `triggerSmartContract` for a contract call, `sendTrx` for a TRX transfer.
-3. Simulate it with `triggerConstantContract` (contract calls only).
-4. Sign it with the wallet (`trx.sign`).
-5. Broadcast it (`trx.sendRawTransaction`) and return the transaction id (`0x` + id). The transport does not wait for confirmation.
+3. Check the built transaction against the request: one contract entry of the expected type with the requested sender, recipient, calldata and amount. Anything else is a `TransactionBuildError`.
+4. Simulate it with `triggerConstantContract` (contract calls only).
+5. Sign it with the wallet (`trx.sign`). The wallet gets its own object; a returned transaction id that differs from the built one, or a signature that is not 65 bytes, is a `SigningError`.
+6. Broadcast the built transaction with the wallet's signatures (`trx.sendRawTransaction`) and return the transaction id (`0x` + id). The transport does not wait for confirmation.
 
 Accepted fields: `from`, `to`, `data` (or `input`), `value`, `permissionId`. Gas, fee, nonce, chain id, type and access-list fields are ignored.
 
@@ -168,7 +163,12 @@ const signer = await recoverAddress({ hash, signature })
 
 `typedData` is the same `{ domain, types, primaryType, message }` that was signed. The domain is used as given; nothing is injected.
 
-Known limitation: with viem versions that derive the `EIP712Domain` type themselves, pass `domain.chainId` as a number (not a `bigint` or a string) when signing through `walletClient.signTypedData`. Otherwise viem may leave `chainId` out of the derived domain type before the transport sees the request.
+`domain.chainId`:
+
+- When `types` has no `EIP712Domain` entry, viem derives it, and a `chainId` given as a hex string, a decimal string or a `bigint` is converted to a number first, so that it is part of the digest on every viem version.
+- When `types` declares `EIP712Domain`, the domain is hashed exactly as given.
+
+Known limitation: `walletClient.signTypedData` always sends a domain type that viem derived itself. On viem versions that derive it only from a numeric `chainId` (2.21.55 does), a `bigint` or string `chainId` is left out of the digest before the transport sees the request. Pass `domain.chainId` as a number there.
 
 ## Errors
 
@@ -181,13 +181,13 @@ Where viem has a class, it is used:
 | `MethodNotSupportedRpcError` | The method is outside the lists above (-32004).                 |
 | `UrlRequiredError`           | No read endpoint at construction.                               |
 
-The package adds six classes. They extend viem's `BaseError`, keep the original error in `cause`, and have no `code`.
+The package adds six classes. They extend the exported base class `TronWebTransportError` (a viem `BaseError`), keep the original error or node answer in `cause`, and all carry `code` -32003. viem neither retries that code nor hands it to the next transport of a `fallback()`.
 
 | Class                         | Extra fields            | Thrown when                                                                                                                                            |
 | ----------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `TransactionRevertedError`    | `reason?`, `data?`      | The simulation reverted or ran out of energy. `reason` is `'OUT_OF_ENERGY'` in the latter case; `data` holds revert bytes when the node returned them. |
 | `SimulationUnavailableError`  |                         | The simulation could not be performed.                                                                                                                 |
-| `TransactionBuildError`       |                         | The node refused to build the transaction.                                                                                                             |
+| `TransactionBuildError`       |                         | The transaction could not be built, or what was built differs from the request.                                                                        |
 | `SigningError`                |                         | The signer failed or returned an unusable result.                                                                                                      |
 | `BroadcastError`              | `nodeCode?`             | The node refused the signed transaction.                                                                                                               |
 | `BroadcastIndeterminateError` | `transactionId`, `data` | The broadcast outcome is unknown (next section).                                                                                                       |
@@ -196,7 +196,7 @@ All are exported from the package root.
 
 ### What you catch
 
-- `transport.request(...)` and `walletClient.signTypedData(...)`: viem's own classes arrive as a new instance of the same class (so `instanceof` and `code` hold), and the package's classes arrive as the same instance.
+- `transport.request(...)` and `walletClient.signTypedData(...)`: viem's own classes arrive as a new instance of the same class (so `instanceof` and `code` hold). The package's classes arrive as the `cause` of viem's `TransactionRejectedRpcError` (code -32003); find them with `error.walk((e) => e instanceof TronWebTransportError)`.
 - `walletClient.sendTransaction(...)`: viem wraps everything in `TransactionExecutionError`. Find the error you want with `walk`:
 
   ```ts
@@ -214,12 +214,21 @@ All are exported from the package root.
   }
   ```
 
-- An EIP-1193 wrapper such as ethers `BrowserProvider`: only `code`, `data` and `message` survive. The package's own errors have no `code`; `BroadcastIndeterminateError` carries its id in `data`.
-- If your bundle contains two copies of viem, `instanceof BaseError` fails inside viem, and the package's errors arrive as the `cause` of an `UnknownRpcError`. They are still not retried. Deduplicate viem to avoid this.
+- An EIP-1193 wrapper such as ethers `BrowserProvider`: only `code`, `data` and `message` survive. Every error of this package has `code` -32003, and its text is part of the outer error's `message`. `data.transactionId` is on `BroadcastIndeterminateError` itself, not on viem's wrapper, so read it from the walked error before the error leaves viem.
+- Two copies of viem in one bundle do not change this: viem maps these errors by `code`.
+
+## No repeated wallet actions
+
+One request causes at most one build, one simulation, one wallet prompt and one broadcast:
+
+- the transport never retries, and it ignores a `retryCount` passed with a single request;
+- every failure on the wallet path carries a code (-32003, or 4001 for a refusal by the user) that viem does not retry and that makes `fallback([...])` stop instead of trying its next transport.
+
+Invalid parameters and unsupported methods are refused before TronWeb is asked for anything; a `fallback()` does try its next transport for those.
 
 ## Broadcast outcome unknown
 
-`BroadcastIndeterminateError` means the signed transaction was handed to TronWeb but the answer was lost or unrecognisable (a timeout, a dropped connection, an unexpected reply). **The transaction may have been accepted.** Do not send it again blindly. The error has `transactionId` (and the same id in `data.transactionId`); look it up first:
+`BroadcastIndeterminateError` means the signed transaction was handed to TronWeb but the answer was lost or unrecognisable (a timeout, a dropped connection, an unexpected reply), or the node answered that it already has this transaction (`DUP_TRANSACTION_ERROR`). **The transaction may have been accepted.** Do not send it again blindly. The error has `transactionId` (and the same id in `data.transactionId`); look it up first:
 
 ```ts
 import { type BaseError, createPublicClient } from 'viem'
@@ -263,7 +272,7 @@ pnpm check:package   # pack, install in a clean project, publint, attw
 pnpm check:live      # manual read-only probe of the built package against Shasta (not run in CI)
 ```
 
-Development and the test run need Node 22.12 or newer; CI runs 22 and 24. The built package supports Node 20 and newer (`engines.node`).
+Node 22.12 or newer is needed for development; CI runs 22 and 24. The package itself declares Node 22 or newer (`engines.node`).
 
 ### Contributing
 
