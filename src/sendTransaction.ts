@@ -12,7 +12,7 @@ import {
   messageOf,
   signingFailure,
 } from './errors.js'
-import { type TronWebLike, isRecord, toSafeInteger } from './types.js'
+import { HEX_BYTES, type TronWebLike, isRecord, toSafeInteger } from './types.js'
 
 /** Text of a thrown value, or the `result.message` of an answer the builder returned. */
 const nodeText = (source: unknown) =>
@@ -37,7 +37,7 @@ function simulationError(source: unknown): Error {
     ? simulated.constant_result[0]
     : undefined
   const data: Hex | undefined =
-    typeof bytes === 'string' && /^(?:[0-9a-f]{2})+$/i.test(bytes) ? `0x${bytes}` : undefined
+    typeof bytes === 'string' && HEX_BYTES.test(bytes) ? `0x${bytes}` : undefined
   const outOfEnergy = /out.?of.?energy/i.test(text)
   if (outOfEnergy || /revert/i.test(text) || simulationFailed(simulated))
     return new TransactionRevertedError(

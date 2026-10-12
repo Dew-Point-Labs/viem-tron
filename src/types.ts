@@ -86,6 +86,9 @@ export interface TronWebTransportConfig {
 /** The transport returned by {@link tronWebTransport}; `value.tronWeb` is the wrapped instance. */
 export type TronWebTransport = Transport<'tronWeb', { tronWeb: TronWebLike }>
 
+/** One or more whole bytes of hex, without `0x`. */
+export const HEX_BYTES = /^(?:[0-9a-f]{2})+$/i
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

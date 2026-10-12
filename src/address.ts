@@ -29,5 +29,8 @@ export function toBase58(tronWeb: TronWebLike, address: Address): string {
 
 /** The wallet's account in 0x form, or `undefined` when the wallet has none. */
 export function walletAddress(tronWeb: TronWebLike): Address | undefined {
-  return to0x(tronWeb, tronWeb.defaultAddress.hex || tronWeb.defaultAddress.base58)
+  // A wallet that is locked or still loading may expose no `defaultAddress` at all.
+  const account = tronWeb.defaultAddress as
+    Partial<TronWebLike['defaultAddress']> | null | undefined
+  return to0x(tronWeb, typeof account?.hex === 'string' ? account.hex : account?.base58)
 }

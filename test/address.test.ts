@@ -116,6 +116,12 @@ describe('walletAddress', () => {
     expect(walletAddress(tronWeb)).toBe(WALLET)
   })
 
+  it.each([[undefined], [null]])('is undefined when defaultAddress is %o', (value) => {
+    const tronWeb = fakeTronWeb()
+    Object.assign(tronWeb, { defaultAddress: value })
+    expect(walletAddress(tronWeb)).toBeUndefined()
+  })
+
   it('is undefined when the wallet has no account or reports a malformed one', () => {
     const tronWeb = fakeTronWeb()
     tronWeb.defaultAddress = { hex: false, base58: false }

@@ -27,8 +27,11 @@ describe('messageOf (node message decoder)', () => {
   it('keeps everything else as is', () => {
     expect(messageOf('REVERT opcode executed')).toBe('REVERT opcode executed')
     expect(messageOf('abc')).toBe('abc') // odd length
-    expect(messageOf('0a41')).toBe('0a41') // decodes to a control character
-    expect(messageOf('c3a9')).toBe('c3a9') // decodes to non-ASCII
+    expect(messageOf('4142')).toBe('4142') // too short to be a message: 'AB'
+    expect(messageOf('414243')).toBe('414243')
+    expect(messageOf('41424344')).toBe('ABCD') // eight hex characters is the minimum
+    expect(messageOf('0a414243')).toBe('0a414243') // decodes to a control character
+    expect(messageOf('c3a9c3a9')).toBe('c3a9c3a9') // decodes to non-ASCII
     expect(messageOf('UkVWRVJU')).toBe('UkVWRVJU') // base64 is not guessed
     expect(messageOf('')).toBe('')
   })
@@ -120,6 +123,9 @@ describe('signingFailure', () => {
     'user canceled the request',
     'Cancelled by user',
     'canceled by the user',
+    'Rejected by user',
+    'request denied by the user',
+    'User reject',
   ]
 
   it.each(refusals)('maps the refusal %j to UserRejectedRequestError (4001)', (text) => {
@@ -134,7 +140,16 @@ describe('signingFailure', () => {
   it('maps code 4001 to UserRejectedRequestError whatever the text', () => {
     expect(signingFailure({ code: 4001, message: 'nope' })).toBeInstanceOf(UserRejectedRequestError)
     expect(signingFailure({ code: 4001 })).toBeInstanceOf(UserRejectedRequestError)
+    expect(signingFailure({ code: '4001' })).toBeInstanceOf(UserRejectedRequestError)
   })
+
+  it.each(['Transaction rejected', 'rejected', 'Rejected: user has no energy', 'denied'])(
+    'node wording %j is not a user rejection',
+    (text) => {
+      expect(signingFailure(text)).toBeInstanceOf(SigningError)
+      expect(signingFailure(new Error(text))).toBeInstanceOf(SigningError)
+    },
+  )
 
   it('maps every other thrown value to SigningError with the original as cause', () => {
     for (const thrown of [

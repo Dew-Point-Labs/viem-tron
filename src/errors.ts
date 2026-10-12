@@ -5,16 +5,17 @@ import {
   UserRejectedRequestError,
   hexToString,
 } from 'viem'
-import { isRecord } from './types.js'
+import { HEX_BYTES, isRecord } from './types.js'
 
 /**
  * Text of a thrown value or of a node answer. Nodes return some messages hex-encoded: a string
- * that is entirely hex and decodes to printable ASCII is decoded, anything else is kept as is.
+ * of at least four hex bytes that decodes to printable ASCII is decoded, anything else is kept
+ * as is (a short word such as `dead` is more likely text than an encoded message).
  */
 export function messageOf(source: unknown): string {
   const text = isRecord(source) ? source.message : source
   if (typeof text !== 'string') return ''
-  if (!/^(?:[0-9a-f]{2})+$/i.test(text)) return text
+  if (text.length < 8 || !HEX_BYTES.test(text)) return text
   const decoded = hexToString(`0x${text}`)
   return /^[\x20-\x7e]+$/.test(decoded) ? decoded : text
 }
@@ -103,13 +104,15 @@ export function invalidParams(reason: string, cause?: unknown): InvalidParamsRpc
   return new InvalidParamsRpcError(new Error(reason, { cause }))
 }
 
-const USER_REJECTION = /declined by user|user (rejected|denied|cancel)|cancell?ed by (the )?user/i
+const USER_REJECTION =
+  /declined by user|user (reject|denied|cancel)|(cancell?ed|rejected|denied) by (the )?user/i
 
 /** Maps a value thrown by the signer to a user rejection (4001) or a {@link SigningError}. */
 export function signingFailure(thrown: unknown): UserRejectedRequestError | SigningError {
   const text = messageOf(thrown)
-  if (!(isRecord(thrown) && thrown.code === 4001) && !USER_REJECTION.test(text))
-    return new SigningError(`Signing failed: ${text || 'unknown error'}`, thrown)
+  const code: unknown = isRecord(thrown) ? thrown.code : undefined
+  const rejected = code === 4001 || code === '4001' || USER_REJECTION.test(text)
+  if (!rejected) return new SigningError(`Signing failed: ${text || 'unknown error'}`, thrown)
   return new UserRejectedRequestError(
     thrown instanceof Error ? thrown : new Error(text, { cause: thrown }),
   )
