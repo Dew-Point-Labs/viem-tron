@@ -43,7 +43,8 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run --coverage",
-    "check:package": "node scripts/check-package.mjs"
+    "check:package": "node scripts/check-package.mjs",
+    "check:live": "node scripts/live-read-check.mjs"
   },
   "peerDependencies": {
     "viem": ">=2.21.0 <3"
