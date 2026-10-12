@@ -287,6 +287,18 @@ describe('3. build — contract call', () => {
     expect(callCounts(tronWeb)).toEqual({ ...NONE, build: 1 })
   })
 
+  it('throws TransactionBuildError for a transaction that cannot be copied', async () => {
+    const tronWeb = fakeTronWeb()
+    const answer = {
+      result: { result: true },
+      transaction: { txID: 'ab'.repeat(32), toJSON: () => 'x' },
+    }
+    tronWeb.transactionBuilder.triggerSmartContract.mockResolvedValueOnce(answer)
+    const error = await failure(send(tronWeb, { to: CONTRACT, data: DATA }))
+    expect(error).toBeInstanceOf(TransactionBuildError)
+    expect(callCounts(tronWeb)).toEqual({ ...NONE, build: 1 })
+  })
+
   it('decodes the node message of a refused build', async () => {
     const tronWeb = fakeTronWeb()
     tronWeb.transactionBuilder.triggerSmartContract.mockResolvedValueOnce({
@@ -594,12 +606,113 @@ describe('5. sign', () => {
   })
 })
 
+describe('5. the signer cannot change what is broadcast', () => {
+  const tx = { to: CONTRACT, data: DATA }
+  const SIGNATURE = 'ab'.repeat(65)
+  const builtBy = async (tronWeb: FakeTronWeb) =>
+    structuredClone(
+      (
+        (await tronWeb.transactionBuilder.triggerSmartContract.mock.results[0]?.value) as {
+          transaction: { txID: string; raw_data: object; raw_data_hex: string }
+        }
+      ).transaction,
+    )
+
+  it.each([
+    ['txID', (t: Record<string, unknown>) => (t.txID = 'cd'.repeat(32))],
+    [
+      'txID, raw_data and raw_data_hex',
+      (t: Record<string, unknown>) =>
+        Object.assign(t, { txID: 'cd'.repeat(32), raw_data: {}, raw_data_hex: 'ff' }),
+    ],
+  ])(
+    'a signer that mutates %s in place and returns the object → SigningError, no broadcast',
+    async (_, mutate) => {
+      const tronWeb = fakeTronWeb()
+      tronWeb.trx.sign.mockImplementationOnce((input) => {
+        mutate(input as Record<string, unknown>)
+        return Promise.resolve(Object.assign(input as object, { signature: [SIGNATURE] }))
+      })
+      expect(await failure(send(tronWeb, tx))).toBeInstanceOf(SigningError)
+      expect(callCounts(tronWeb).broadcast).toBe(0)
+    },
+  )
+
+  it('a signer that mutates raw_data in place but keeps txID: the built bytes are broadcast', async () => {
+    const tronWeb = fakeTronWeb()
+    tronWeb.trx.sign.mockImplementationOnce((input) =>
+      Promise.resolve(
+        Object.assign(input as object, {
+          raw_data: { contract: [] },
+          raw_data_hex: 'ff',
+          signature: [SIGNATURE],
+        }),
+      ),
+    )
+    // The builder's own object is what the signer mutated; compare with a build of the same request.
+    const reference = fakeTronWeb()
+    await send(reference, tx)
+    await send(tronWeb, tx)
+    expect(tronWeb.trx.sendRawTransaction).toHaveBeenCalledExactlyOnceWith({
+      ...(await builtBy(reference)),
+      signature: [SIGNATURE],
+    })
+  })
+
+  it('a signer that returns another object with the same txID: the built bytes are broadcast', async () => {
+    const tronWeb = fakeTronWeb()
+    tronWeb.trx.sign.mockImplementationOnce((input) =>
+      Promise.resolve({
+        txID: (input as { txID: string }).txID,
+        raw_data: { contract: [{ type: 'TransferContract' }] },
+        raw_data_hex: 'ff',
+        visible: true,
+        extra: 1,
+        signature: [SIGNATURE],
+      }),
+    )
+    await send(tronWeb, tx)
+    expect(tronWeb.trx.sendRawTransaction).toHaveBeenCalledExactlyOnceWith({
+      ...(await builtBy(tronWeb)),
+      signature: [SIGNATURE],
+    })
+  })
+
+  it.each([
+    ['null', [null]],
+    ['a number', [5]],
+    ['64 bytes', ['ab'.repeat(64)]],
+    ['66 bytes', ['ab'.repeat(66)]],
+    ['not hex', ['zz'.repeat(65)]],
+    ['one good and one bad entry', [SIGNATURE, 'ab']],
+  ])('a signature entry that is %s → SigningError, no broadcast', async (_, signature) => {
+    const tronWeb = fakeTronWeb()
+    tronWeb.trx.sign.mockImplementationOnce((input) =>
+      Promise.resolve({ ...(input as object), signature }),
+    )
+    expect(await failure(send(tronWeb, tx))).toBeInstanceOf(SigningError)
+    expect(callCounts(tronWeb).broadcast).toBe(0)
+  })
+
+  it.each([[[SIGNATURE]], [[`0x${SIGNATURE}`]], [[SIGNATURE, SIGNATURE.toUpperCase()]]])(
+    'accepts 65-byte hex signatures: %o',
+    async (signature) => {
+      const tronWeb = fakeTronWeb()
+      tronWeb.trx.sign.mockImplementationOnce((input) =>
+        Promise.resolve({ ...(input as object), signature }),
+      )
+      await send(tronWeb, tx)
+      expect(tronWeb.trx.sendRawTransaction.mock.calls[0]?.[0]).toMatchObject({ signature })
+    },
+  )
+})
+
 describe('6. broadcast and 7. return', () => {
   const SENT = { build: 1, simulate: 1, transfer: 0, sign: 1, broadcast: 1 }
   const txIdOf = async (tronWeb: FakeTronWeb) =>
     ((await tronWeb.trx.sign.mock.results[0]?.value) as { txID: string }).txID
 
-  it('broadcasts exactly what the signer returned and returns 0x + txID without waiting', async () => {
+  it('broadcasts the built transaction with the returned signatures and returns 0x + txID without waiting', async () => {
     const tronWeb = fakeTronWeb()
     const id = await send(tronWeb, { to: CONTRACT, data: DATA })
     const signed: unknown = await tronWeb.trx.sign.mock.results[0]?.value

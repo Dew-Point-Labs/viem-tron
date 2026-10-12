@@ -115,13 +115,16 @@ export async function sendTransaction(
     buildError,
   )
   const accepted = isRecord(built) && isRecord(built.result) && built.result.result === true
-  const transaction = !isCall ? built : accepted ? built.transaction : undefined
-  if (
-    !isRecord(transaction) ||
-    typeof transaction.txID !== 'string' ||
-    !/^[0-9a-f]{64}$/i.test(transaction.txID)
+  const fromBuilder = !isCall ? built : accepted ? built.transaction : undefined
+  if (!isRecord(fromBuilder)) throw buildError(built)
+  // A private copy: a wallet may mutate the object it signs, and only what was built here may
+  // reach the node.
+  const transaction = await guard(
+    () => structuredClone(fromBuilder),
+    () => buildError(built),
   )
-    throw buildError(built)
+  const { txID } = transaction
+  if (typeof txID !== 'string' || !/^[0-9a-f]{64}$/i.test(txID)) throw buildError(built)
 
   if (isCall) {
     const simulated = await guard(
@@ -138,18 +141,21 @@ export async function sendTransaction(
       throw simulationError(simulated)
   }
 
-  const signed = await guard(() => tronWeb.trx.sign(transaction), signingFailure)
+  const signed = await guard(() => tronWeb.trx.sign(fromBuilder), signingFailure)
+  const isSignature = (entry: unknown) =>
+    typeof entry === 'string' && /^(?:0x)?[0-9a-f]{130}$/i.test(entry)
   if (
     !isRecord(signed) ||
     !Array.isArray(signed.signature) ||
     signed.signature.length === 0 ||
-    signed.txID !== transaction.txID
+    !signed.signature.every(isSignature) ||
+    signed.txID !== txID
   )
     throw new SigningError('The signer returned an unusable result.', signed)
 
-  const id: Hex = `0x${transaction.txID.toLowerCase()}`
+  const id: Hex = `0x${txID.toLowerCase()}`
   const answer = await guard(
-    () => tronWeb.trx.sendRawTransaction(signed),
+    () => tronWeb.trx.sendRawTransaction({ ...transaction, signature: signed.signature }),
     (thrown) => new BroadcastIndeterminateError(id, thrown),
   )
   if (isRecord(answer)) {
