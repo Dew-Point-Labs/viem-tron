@@ -339,6 +339,15 @@ describe('a wallet action is never re-issued', () => {
   })
 
   describe('a per-request retryCount is overridden', () => {
+    it('a failing read with a retriable error is sent once when the read transport does not retry', async () => {
+      const read = stubRead(() => ({ error: { code: -32603, message: 'internal' } }))
+      const transport = tronWebTransport(fakeTronWeb(), { rpc: read.transport })({ chain: tron })
+      await failure(
+        transport.request({ method: 'eth_blockNumber' }, { retryCount: 2, retryDelay: 0 }),
+      )
+      expect(read.request).toHaveBeenCalledTimes(1)
+    })
+
     it('a send whose broadcast throws runs every step once', async () => {
       const { tronWeb, raw } = setup()
       tronWeb.trx.sendRawTransaction.mockImplementation(rejection(new Error('socket hang up')))
