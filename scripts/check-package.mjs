@@ -29,7 +29,13 @@ try {
   writeFileSync(join(app, 'package.json'), '{"name":"consumer","private":true}')
   run('npm', ['install', '--no-audit', '--no-fund', tarball, 'viem@2.21.55'], app)
 
-  const check = `typeof m.tronWebTransport === 'function' || process.exit(1)`
+  // Construct a real transport from the installed package, with a TronWeb that is never called.
+  const check = `
+    const tronWeb = { defaultAddress: { hex: false, base58: false }, address: {}, trx: {}, transactionBuilder: {} }
+    const transport = m.tronWebTransport(tronWeb, { rpc: 'http://localhost' })({ chain: { id: 1 } })
+    if (transport.config.type !== 'tronWeb' || transport.value.tronWeb !== tronWeb) process.exit(1)
+    if (typeof m.BroadcastIndeterminateError !== 'function') process.exit(1)
+  `
   writeFileSync(join(app, 'c.cjs'), `const m = require('${NAME}'); ${check}`)
   writeFileSync(join(app, 'e.mjs'), `const m = await import('${NAME}'); ${check}`)
   run('node', ['c.cjs'], app)
