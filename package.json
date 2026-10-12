@@ -1,0 +1,66 @@
+{
+  "name": "@dewpointlabs/viem-tron",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "viem transport for Tron: wallet actions through TronWeb, reads through Tron JSON-RPC",
+  "author": "Dew Point Labs",
+  "keywords": [
+    "viem",
+    "tron",
+    "tronweb",
+    "tronlink",
+    "transport"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist"
+  ],
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "test": "vitest run --coverage",
+    "check:package": "node scripts/check-package.mjs"
+  },
+  "peerDependencies": {
+    "viem": ">=2.21.0 <3"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^5.0.4",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.10",
+    "publint": "^0.3.25",
+    "tronweb": "^6.5.1",
+    "tsup": "^8.5.1",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "8.71.2",
+    "viem": "2.21.55",
+    "vitest": "^5.0.4"
+  }
+}
