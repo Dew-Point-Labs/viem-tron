@@ -2,7 +2,7 @@
   "name": "@dewpointlabs/viem-tron",
   "version": "0.1.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "GPL-3.0-only",
   "description": "viem transport for Tron: wallet actions through TronWeb, reads through Tron JSON-RPC",
   "author": "Dew Point Labs",
   "keywords": [

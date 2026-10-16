@@ -2,7 +2,7 @@
 
 A [viem](https://viem.sh) transport for Tron. Wallet actions (sending transactions, signing typed data) go through a [TronWeb](https://tronweb.network) instance, either one your application creates or the one a wallet such as TronLink injects. Everything else is read from a Tron JSON-RPC endpoint.
 
-Status: pre-release (0.x), not yet published to npm. The licence will be announced.
+Status: pre-release (0.x), not yet published to npm.
 
 ## How it works
 
@@ -286,3 +286,9 @@ See [SECURITY.md](SECURITY.md).
 ### Versioning
 
 Semantic versioning. While the version is 0.x, breaking changes may land in a minor release; they are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+Copyright (C) 2026 Altoros LLC (dba Protofire DAO).
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 3. It is distributed WITHOUT ANY WARRANTY; see the [LICENSE](LICENSE) file for the full text.

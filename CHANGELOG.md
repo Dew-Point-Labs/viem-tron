@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Licensed under GPL-3.0-only. Copyright (C) 2026 Altoros LLC (dba Protofire DAO).
 - `tronWebTransport(tronWeb, config?)`: a viem transport for Tron. Wallet actions go through a TronWeb instance (created by the application or injected by a wallet); reads go to a Tron JSON-RPC endpoint.
 - `eth_sendTransaction` for contract calls and TRX transfers. `value` is in SUN. Calldata is forwarded unchanged. The built transaction is checked against the request (sender, recipient, calldata, amount, permission id, fee limit, no attached token amount) before anything else happens. A contract call is simulated first, and nothing is signed when the simulation reverts, runs out of energy or cannot be performed. Only the transaction that was built, plus the wallet's signatures, is broadcast. Returns the transaction id without waiting for confirmation.
 - `eth_signTypedData_v4` (alias `eth_signTypedData`): the wallet signs the EIP-712 digest as a Tron signed message; the result is a 65-byte signature with `v` as 27 or 28.
